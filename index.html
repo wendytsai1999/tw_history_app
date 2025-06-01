@@ -1,0 +1,2041 @@
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>臺灣日日新報智能檢索系統</title>
+  
+  <!-- External Libraries -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/l10n/zh-tw.min.js"></script>
+
+  <style>
+    .container { max-width: 1200px; }
+    .chart-container { height: 300px !important; }
+    .search-animation { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+    .query-tag {
+      background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+      color: white; border-radius: 20px; padding: 6px 12px; margin: 4px;
+      cursor: pointer; transition: transform 0.2s; display: inline-block; font-size: 0.85em;
+    }
+    .query-tag:hover { transform: scale(1.05); background: linear-gradient(135deg, #1f2937 0%, #111827 100%); }
+    .search-tab { 
+      padding: 8px 16px; cursor: pointer; border-radius: 8px 8px 0 0; 
+      background: #f3f4f6; color: #6b7280; transition: all 0.2s;
+    }
+    .search-tab.active { background: white; color: #374151; border-bottom: 2px solid #2563eb; }
+    .clear-btn {
+      position: absolute; right: 45px; top: 50%; transform: translateY(-50%);
+      color: #6b7280; cursor: pointer; display: none;
+    }
+    .clear-btn:hover { color: #374151; }
+    .search-container { position: relative; }
+    .filter-tag { 
+      background: #10b981; color: white; padding: 4px 8px; border-radius: 12px; 
+      font-size: 0.75rem; margin: 2px; display: inline-block; position: relative;
+    }
+    .filter-tag .remove-filter {
+      margin-left: 6px; cursor: pointer; font-weight: bold;
+    }
+    .filter-tag .remove-filter:hover { color: #fee2e2; }
+    .field-checkbox {
+      margin: 4px 8px 4px 0; display: inline-flex; align-items: center;
+    }
+    .field-checkbox input { margin-right: 4px; }
+    .traditional-help {
+      background: #fef3c7; border: 1px solid #f59e0b; padding: 12px; border-radius: 8px;
+      font-size: 0.875rem; color: #92400e; margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+  <div class="container mx-auto p-4">
+    <h1 class="text-4xl font-bold text-center mb-6 bg-gradient-to-r from-gray-800 to-black bg-clip-text text-transparent">
+      臺灣日日新報智能檢索系統
+    </h1>
+
+    <div class="flex justify-center mb-4">
+      <div id="load-progress" class="bg-gray-100 text-gray-700 px-3 py-1 rounded border">正在載入資料...</div>
+    </div>
+
+    <!-- 檢索區域 -->
+    <div class="bg-white rounded-lg shadow-lg mb-6 border overflow-hidden">
+      <!-- 檢索方式選擇 -->
+      <div class="flex border-b">
+        <div class="search-tab active" onclick="switchSearchMode('smart')" id="smart-tab">智能檢索</div>
+        <div class="search-tab" onclick="switchSearchMode('traditional')" id="traditional-tab">傳統檢索</div>
+      </div>
+
+      <!-- 智能檢索面板 -->
+      <div id="smart-search-panel" class="p-6">
+        <div class="mb-4">
+          <div class="search-container flex gap-2">
+            <div class="flex-1 relative">
+              <input id="nlp-search-input" type="text" placeholder="例如：1920年代關於教育的資料、日治時期的農業政策、總督府的行政措施..."
+                class="w-full border-2 border-gray-300 rounded-lg px-4 py-3 pr-20 focus:border-gray-500 focus:outline-none text-sm" />
+              <span id="clear-search" class="clear-btn" onclick="clearSearchInput()">✕</span>
+            </div>
+            <button onclick="performNLPSearch()" 
+              class="bg-gradient-to-r from-gray-600 to-gray-800 text-white px-6 py-3 rounded-lg hover:from-gray-700 hover:to-gray-900 transition-all duration-200 font-medium" disabled>
+              檢索
+            </button>
+          </div>
+
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-600 mb-2">查詢範例</label>
+          <div class="flex flex-wrap">
+            <span class="query-tag" onclick="setExampleQuery('日治時期高雄港是怎麼建起來的？')">高雄港建設</span>
+            <span class="query-tag" onclick="setExampleQuery('日治時期有填海造陸的工程嗎？')">填海造陸工程</span>
+            <span class="query-tag" onclick="setExampleQuery('日治時期如何進行司法審判？')">司法審判制度</span>
+            <span class="query-tag" onclick="setExampleQuery('嘉義發生過哪些社會案件？')">嘉義社會案件</span>
+            <span class="query-tag" onclick="setExampleQuery('日治時期的台灣，有哪些流行病？')">流行病疫情</span>
+            <span class="query-tag" onclick="setExampleQuery('1908年之後，台灣鐵路建設情況')">鐵路建設</span>
+            <span class="query-tag" onclick="setExampleQuery('日治初期有哪些鎮壓原住民的措施')">原住民鎮壓</span>
+            <span class="query-tag" onclick="setExampleQuery('大稻埕跟茶業的關係')">茶業發展</span>
+            <span class="query-tag" onclick="setExampleQuery('製糖公司大多分布在哪些縣市？')">製糖產業分布</span>
+          </div>
+        </div>
+
+        <div id="search-status" class="hidden bg-gray-50 border border-gray-300 rounded-lg p-4 mb-4">
+          <div class="flex items-center">
+            <div class="search-animation mr-3">
+              <div class="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+            <span class="text-gray-700 font-medium">正在分析查詢語句...</span>
+          </div>
+        </div>
+
+        <div id="query-analysis" class="hidden bg-green-100 border border-green-300 rounded-lg p-4">
+          <h3 class="font-semibold text-green-800 mb-3">AI分析檢索邏輯</h3>
+          <div class="p-3 bg-white border border-green-200 rounded">
+            <div class="text-sm text-green-800"><strong>檢索邏輯：</strong><span id="search-logic-display"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 傳統檢索面板 -->
+      <div id="traditional-search-panel" class="p-6 hidden">
+        <div class="traditional-help">
+          <strong>使用說明：</strong> 
+          支援布林邏輯 - 使用 AND、OR、NOT 運算子（不區分大小寫）。
+          例如：「高雄 AND 港口」、「教育 OR 學校」、「政策 NOT 軍事」
+        </div>
+
+        <div class="mb-4">
+          <div class="search-container flex gap-2">
+            <div class="flex-1 relative">
+              <input id="traditional-search-input" type="text" placeholder="請輸入檢索詞，支援布林邏輯：高雄 AND 港口、教育 OR 學校、政策 NOT 軍事"
+                class="w-full border-2 border-gray-300 rounded-lg px-4 py-3 pr-20 focus:border-gray-500 focus:outline-none text-sm" />
+              <span id="clear-traditional-search" class="clear-btn" onclick="clearTraditionalSearchInput()">✕</span>
+            </div>
+            <button onclick="performTraditionalSearch()" 
+              class="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-6 py-3 rounded-lg hover:from-blue-700 hover:to-blue-900 transition-all duration-200 font-medium" disabled>
+              檢索
+            </button>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-600 mb-2">檢索欄位</label>
+          <div class="flex flex-wrap">
+            <label class="field-checkbox">
+              <input type="checkbox" value="all" checked onchange="handleFieldSelection(this)"> 全部欄位
+            </label>
+            <label class="field-checkbox">
+              <input type="checkbox" value="題名" onchange="handleFieldSelection(this)"> 題名
+            </label>
+            <label class="field-checkbox">
+              <input type="checkbox" value="標題分類" onchange="handleFieldSelection(this)"> 標題分類
+            </label>
+            <label class="field-checkbox">
+              <input type="checkbox" value="關鍵詞" onchange="handleFieldSelection(this)"> 關鍵詞
+            </label>
+          </div>
+        </div>
+
+        <div id="traditional-result" class="hidden bg-blue-100 border border-blue-300 rounded-lg p-4">
+          <h3 class="font-semibold text-blue-800 mb-3">檢索結果</h3>
+          <div class="p-3 bg-white border border-blue-200 rounded">
+            <div class="text-sm text-blue-800" id="traditional-result-display"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 篩選條件區域 -->
+    <div class="grid grid-cols-1 gap-6 mb-6">
+      <div class="bg-white p-4 rounded shadow border">
+        <h2 class="text-lg font-semibold mb-3 text-gray-800">日期篩選</h2>
+        <div class="mb-3">
+          <label class="block mb-1 text-gray-700">1895/1/1 – 1945/12/31</label>
+          <input id="date-range" type="text" class="border border-gray-300 p-2 w-full rounded" placeholder="請選擇日期 預設1895/1/1 – 1945/12/31" disabled />
+        </div>
+      </div>
+
+      <div class="bg-white p-4 rounded shadow border">
+        <h2 class="text-lg font-semibold mb-3 text-gray-800">標題分類篩選</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="block text-gray-700 mb-1">大分類</label><select id="title-major" class="border border-gray-300 p-2 w-full rounded" disabled></select></div>
+          <div><label class="block text-gray-700 mb-1">中分類</label><select id="title-mid" class="border border-gray-300 p-2 w-full rounded" disabled></select></div>
+        </div>
+      </div>
+
+      <div class="bg-white p-4 rounded shadow border">
+        <h2 class="text-lg font-semibold mb-3 text-gray-800">關鍵詞分類篩選</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div><label class="block text-gray-700 mb-1">大分類</label><select id="major-category" class="border border-gray-300 p-2 w-full rounded" disabled></select></div>
+          <div><label class="block text-gray-700 mb-1">中分類</label><select id="mid-category" class="border border-gray-300 p-2 w-full rounded" disabled></select></div>
+          <div><label class="block text-gray-700 mb-1">小分類</label><select id="minor-category" class="border border-gray-300 p-2 w-full rounded" disabled></select></div>
+          <div class="md:col-span-3"><label class="block text-gray-700 mb-1">熱門關鍵詞 (前20)</label><select id="keyword" class="border border-gray-300 p-2 w-full rounded" disabled></select></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 篩選條件顯示區塊 -->
+    <div id="active-filters" class="hidden bg-green-100 border border-green-300 rounded-lg p-4 mb-6">
+      <h3 class="font-semibold text-green-800 mb-3">目前篩選條件</h3>
+      <div id="filter-tags" class="flex flex-wrap"></div>
+    </div>
+
+    <div class="flex justify-between items-center mb-4">
+      <button onclick="resetFilters()" class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300 transition-colors border" disabled>重設篩選</button>
+    </div>
+
+    <!-- 圖表區域 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+      <div class="bg-white p-4 rounded shadow border">
+        <h2 class="text-lg font-semibold mb-2 text-gray-800">年份分布</h2>
+        <div class="chart-container"><canvas id="yearChart"></canvas></div>
+      </div>
+      <div class="bg-white p-4 rounded shadow border">
+        <h2 class="text-lg font-semibold mb-2 text-gray-800">標題分類比例</h2>
+        <div id="titlePieBackBtn" class="text-sm mb-2"></div>
+        <div class="chart-container"><canvas id="titleCategoryPie"></canvas></div>
+        <div id="titleDataCount" class="text-sm text-gray-600 mt-2 text-center"></div>
+      </div>
+      <div class="bg-white p-4 rounded shadow border">
+        <h2 class="text-lg font-semibold mb-2 text-gray-800">關鍵詞分類比例</h2>
+        <div id="keywordPieBackBtn" class="text-sm mb-2"></div>
+        <div class="chart-container"><canvas id="keywordCategoryPie"></canvas></div>
+        <div id="keywordDataCount" class="text-sm text-gray-600 mt-2 text-center"></div>
+      </div>
+    </div>
+
+    <!-- 結果表格 -->
+    <div class="bg-white p-4 rounded shadow mb-6 overflow-x-auto border">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="text-lg font-semibold text-gray-800">結果列表</h2>
+        <p class="text-sm text-gray-600">符合條件：<span id="filtered-count">0</span> 筆資料編號</p>
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-gray-700">排序：</label>
+          <select id="sort-order" class="border border-gray-300 p-1 text-sm rounded" disabled>
+            <option value="relevance" selected>相關度</option>
+            <option value="date-asc">日期（舊→新）</option>
+            <option value="date-desc">日期（新→舊）</option>
+          </select>
+        </div>
+      </div>
+      <table class="min-w-full text-sm border border-gray-300 mb-2">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="border border-gray-300 px-2 py-1" style="width: 50px">編號</th>
+            <th class="border border-gray-300 px-2 py-1">資料編號</th>
+            <th class="border border-gray-300 px-2 py-1">日期</th>
+            <th class="border border-gray-300 px-2 py-1">題名</th>
+            <th class="border border-gray-300 px-2 py-1">標題分類</th>
+            <th class="border border-gray-300 px-2 py-1">關鍵詞資訊</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+      <div class="flex justify-between items-center">
+        <button onclick="prevPage()" class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50" disabled>上一頁</button>
+        <span class="text-sm text-gray-700">第 <input id="page-input" type="number" value="1" min="1" class="border border-gray-300 w-16 text-center mx-2 rounded" onchange="gotoPage()" disabled /> / <span id="total-pages">1</span> 頁</span>
+        <button onclick="nextPage()" class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50" disabled>下一頁</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========================================
+    // 效能優化：緩存和常量
+    // ========================================
+    const CACHE = {
+      normalizedTexts: new Map(),
+      searchResults: new Map(),
+      categoryMaps: new Map(),
+      relevanceScores: new Map()
+    };
+
+    // 預編譯正則表達式
+    const REGEX_CACHE = {
+      datePatterns: [
+        /^(\d{4})-(\d{1,2})-(\d{1,2})/,
+        /^(\d{4})\/(\d{1,2})\/(\d{1,2})/,
+        /^(\d{4})-(\d{1,2})/,
+        /^(\d{4})\/(\d{1,2})/
+      ],
+      escapeRegex: /[.*+?^${}()|[\]\\]/g
+    };
+
+    // ========================================
+    // 字符正規化機制
+    // ========================================
+    const CHARACTER_NORMALIZATION_MAP = {
+      '台': '臺', '台灣': '臺灣', '台北': '臺北', '台中': '臺中', '台南': '臺南', '台東': '臺東',
+      '裡': '裏', '着': '著', '国': '國','学': '學', '会': '會', 
+    };
+
+    const REVERSE_NORMALIZATION_MAP = Object.fromEntries(
+      Object.entries(CHARACTER_NORMALIZATION_MAP).map(([k, v]) => [v, k])
+    );
+
+    // 建立正規化的查找表以提高效能
+    const NORMALIZATION_REGEX = new RegExp(Object.keys(CHARACTER_NORMALIZATION_MAP).join('|'), 'g');
+
+    function normalizeText(text) {
+      if (!text) return '';
+      const cacheKey = String(text);
+      if (CACHE.normalizedTexts.has(cacheKey)) {
+        return CACHE.normalizedTexts.get(cacheKey);
+      }
+      
+      const normalized = cacheKey.replace(NORMALIZATION_REGEX, match => CHARACTER_NORMALIZATION_MAP[match]);
+      CACHE.normalizedTexts.set(cacheKey, normalized);
+      return normalized;
+    }
+
+    function denormalizeText(text) {
+      if (!text) return '';
+      const str = String(text);
+      const reverseRegex = new RegExp(Object.keys(REVERSE_NORMALIZATION_MAP).join('|'), 'g');
+      return str.replace(reverseRegex, match => REVERSE_NORMALIZATION_MAP[match]);
+    }
+
+    function hasNormalizableCharacters(text) {
+      return text && NORMALIZATION_REGEX.test(String(text));
+    }
+
+    function getNormalizationInfo(originalText, normalizedText) {
+      if (originalText === normalizedText) return null;
+      const changes = [];
+      Object.entries(CHARACTER_NORMALIZATION_MAP).forEach(([simplified, traditional]) => {
+        if (originalText.includes(simplified)) {
+          changes.push(`「${simplified}」→「${traditional}」`);
+        }
+      });
+      return changes.length > 0 ? `字形正規化：${changes.join('、')}` : null;
+    }
+
+    // ========================================
+    // 核心配置與全域狀態
+    // ========================================
+    const MOCK_QUERY_DATA = {
+      '日治時期高雄港是怎麼建起來的？': { time: '1895-1945', location: ['高雄港', '高雄', '港'], topic: ['高雄港', '港口', '建設'] },
+      '日治時期有填海造陸的工程嗎？': { time: '1895-1945', location: ['臺灣'], topic: ['填海造陸', '填海', '工程'] },
+      '日治時期如何進行司法審判？': { time: '1895-1945', location: ['臺灣'], topic: ['司法審判', '審判'] },
+      '嘉義發生過哪些社會案件？': { time: '1895-1945', location: ['嘉義'], topic: ['社會案件'] },
+      '日治時期的台灣，有哪些流行病？': { time: '1895-1945', location: ['臺灣'], topic: ['流行病'] },
+      '日治時期的臺灣，有哪些流行病？': { time: '1895-1945', location: ['臺灣'], topic: ['流行病'] },
+      '1908年之後，台灣鐵路建設情況': { time: '1908-1945', location: ['臺灣'], topic: ['鐵路建設', '鐵路', '建設'] },
+      '1908年之後，臺灣鐵路建設情況': { time: '1908-1945', location: ['臺灣'], topic: ['鐵路建設', '鐵路', '建設'] },
+      '日治初期有哪些鎮壓原住民的措施': { time: '1895-1915', location: ['臺灣'], topic: ['鎮壓原住民', '原住民', '鎮壓', '措施'] },
+      '大稻埕跟茶業的關係': { time: '1895-1945', location: ['大稻埕', '臺北'], topic: ['茶業', '產業', '貿易'] },
+      '製糖公司大多分布在哪些縣市？': { time: '1895-1945', location: ['臺灣'], topic: ['製糖公司', '製糖', '產業分布'] }
+    };
+
+    const state = {
+      data: [],
+      filtered: [],
+      filters: {},
+      sortOrder: 'relevance',
+      page: 1,
+      charts: {},
+      pie: { 
+        title: { level: 'major', stack: [] }, 
+        keyword: { level: 'major', stack: [] } 
+      },
+      searchMode: 'smart',
+      nlpSearch: { 
+        isActive: false, 
+        query: '', 
+        normalizedQuery: '',
+        parsedData: null, 
+        baseFiltered: [] 
+      },
+      traditionalSearch: {
+        isActive: false,
+        query: '',
+        normalizedQuery: '',
+        fields: ['all'],
+        baseFiltered: []
+      },
+      // 預計算的索引
+      indexes: {
+        titleMajor: new Map(),
+        titleMid: new Map(),
+        keywordsByCategory: new Map(),
+        yearIndex: new Map()
+      }
+    };
+
+    // ========================================
+    // 工具函數
+    // ========================================
+    const $ = id => document.getElementById(id);
+    
+    // 使用 Set 來提高 unique 操作效能
+    function unique(arr) {
+      return [...new Set(arr.filter(Boolean))].sort();
+    }
+
+    const safe = val => String(val || '').trim();
+
+    // 緩存 escapeRegExp 結果
+    const escapeRegExpCache = new Map();
+    function escapeRegExp(str) {
+      if (escapeRegExpCache.has(str)) {
+        return escapeRegExpCache.get(str);
+      }
+      const escaped = str.replace(REGEX_CACHE.escapeRegex, '\\$&');
+      escapeRegExpCache.set(str, escaped);
+      return escaped;
+    }
+
+    // 使用預編譯的正則表達式
+    function parseDate(dateStr) {
+      if (!dateStr) return null;
+      const str = String(dateStr).trim();
+      
+      for (const pattern of REGEX_CACHE.datePatterns) {
+        const match = str.match(pattern);
+        if (match) {
+          const year = parseInt(match[1]);
+          const month = parseInt(match[2] || 1);
+          const day = parseInt(match[3] || 1);
+          if (year >= 1895 && year <= 1945) {
+            return new Date(year, month - 1, day);
+          }
+        }
+      }
+      return null;
+    }
+
+    function parseYear(yearStr) {
+      if (!yearStr) return null;
+      const year = parseInt(yearStr);
+      return (year >= 1895 && year <= 1945) ? year : null;
+    }
+
+    function formatDate(date) {
+      if (!date) return '';
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    // parseKeywords 使用緩存
+    const parseKeywordsCache = new Map();
+    function parseKeywords(kw) {
+      if (Array.isArray(kw)) return kw;
+      const cacheKey = String(kw || '');
+      if (parseKeywordsCache.has(cacheKey)) {
+        return parseKeywordsCache.get(cacheKey);
+      }
+      
+      const result = cacheKey.replace(/^\[|\]$/g, '')
+        .split(/[,，]/)
+        .map(s => s.replace(/^['"]|['"]$/g, '').trim())
+        .filter(Boolean);
+      
+      parseKeywordsCache.set(cacheKey, result);
+      return result;
+    }
+
+    // ========================================
+    // 建立索引
+    // ========================================
+    function buildIndexes() {
+      state.indexes.titleMajor.clear();
+      state.indexes.titleMid.clear();
+      state.indexes.keywordsByCategory.clear();
+      state.indexes.yearIndex.clear();
+
+      state.data.forEach((item, index) => {
+        // 標題分類索引
+        if (item.標題大分類) {
+          if (!state.indexes.titleMajor.has(item.標題大分類)) {
+            state.indexes.titleMajor.set(item.標題大分類, []);
+          }
+          state.indexes.titleMajor.get(item.標題大分類).push(index);
+        }
+
+        if (item.標題中分類) {
+          if (!state.indexes.titleMid.has(item.標題中分類)) {
+            state.indexes.titleMid.set(item.標題中分類, []);
+          }
+          state.indexes.titleMid.get(item.標題中分類).push(index);
+        }
+
+        // 年份索引
+        if (item._年份) {
+          if (!state.indexes.yearIndex.has(item._年份)) {
+            state.indexes.yearIndex.set(item._年份, []);
+          }
+          state.indexes.yearIndex.get(item._年份).push(index);
+        }
+
+        // 關鍵詞分類索引
+        if (item.關鍵詞列表) {
+          item.關鍵詞列表.forEach(kw => {
+            const key = `${kw.大分類}|${kw.中分類}|${kw.小分類}`;
+            if (!state.indexes.keywordsByCategory.has(key)) {
+              state.indexes.keywordsByCategory.set(key, []);
+            }
+            state.indexes.keywordsByCategory.get(key).push(index);
+          });
+        }
+      });
+    }
+
+    // ========================================
+    // 檢索模式切換
+    // ========================================
+    function switchSearchMode(mode) {
+      state.searchMode = mode;
+      
+      document.querySelectorAll('.search-tab').forEach(tab => tab.classList.remove('active'));
+      $(`${mode}-tab`).classList.add('active');
+      
+      $('smart-search-panel').classList.toggle('hidden', mode !== 'smart');
+      $('traditional-search-panel').classList.toggle('hidden', mode !== 'traditional');
+      
+      clearAllSearches();
+      resetToDefault();
+    }
+
+    function resetToDefault() {
+      state.filters = {};
+      state.sortOrder = 'relevance';
+      state.page = 1;
+      state.pie.title = { level: 'major', stack: [] };
+      state.pie.keyword = { level: 'major', stack: [] };
+      state.filtered = state.data;
+
+      document.querySelectorAll('select').forEach(s => s.value = '');
+      const dateInput = $('date-range');
+      if (dateInput._flatpickr) dateInput._flatpickr.clear();
+      $('sort-order').value = 'relevance';
+
+      // 清除緩存
+      CACHE.searchResults.clear();
+      CACHE.relevanceScores.clear();
+
+      update();
+    }
+
+    function clearAllSearches() {
+      state.nlpSearch = { 
+        isActive: false, 
+        query: '', 
+        normalizedQuery: '',
+        parsedData: null, 
+        baseFiltered: [] 
+      };
+      $('nlp-search-input').value = '';
+      $('clear-search').style.display = 'none';
+      $('search-status').classList.add('hidden');
+      $('query-analysis').classList.add('hidden');
+
+      state.traditionalSearch = {
+        isActive: false,
+        query: '',
+        normalizedQuery: '',
+        fields: ['all'],
+        baseFiltered: []
+      };
+      $('traditional-search-input').value = '';
+      $('clear-traditional-search').style.display = 'none';
+      $('traditional-result').classList.add('hidden');
+      
+      document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.checked = cb.value === 'all';
+      });
+
+      // 清除檢索相關緩存
+      CACHE.searchResults.clear();
+      CACHE.relevanceScores.clear();
+    }
+
+    // ========================================
+    // 智能檢索功能
+    // ========================================
+    async function performNLPSearch() {
+      const originalQuery = $('nlp-search-input').value.trim();
+      if (!originalQuery) { 
+        alert('請輸入查詢語句'); 
+        return; 
+      }
+      if (state.data.length === 0) { 
+        alert('資料尚未載入完成，請稍候'); 
+        return; 
+      }
+
+      const normalizedQuery = normalizeText(originalQuery);
+      
+      console.log("normalizedQuery: ", normalizedQuery)
+      return
+
+      showSearchStatus(true);
+      $('query-analysis').classList.add('hidden');
+
+      try {
+        const parsedData = await parseQuery(normalizedQuery) || await parseQuery(originalQuery);
+        
+        state.nlpSearch.isActive = true;
+        state.nlpSearch.query = originalQuery;
+        state.nlpSearch.normalizedQuery = normalizedQuery;
+        state.nlpSearch.parsedData = parsedData;
+        
+        showSearchStatus(false);
+        displayQueryAnalysis(originalQuery, normalizedQuery, parsedData);
+        applySearchFilters(parsedData, normalizedQuery);
+      } catch (error) {
+        console.error('智能檢索失敗:', error);
+        showSearchStatus(false);
+        alert('檢索失敗，請稍後再試');
+      }
+    }
+
+    async function parseQuery(query) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      return MOCK_QUERY_DATA[query] || { time: '1895-1945', location: ['臺灣'], topic: ['資料'] };
+    }
+
+    function showSearchStatus(show) { 
+      $('search-status').classList.toggle('hidden', !show); 
+    }
+
+    function displayQueryAnalysis(originalQuery, normalizedQuery, parsedData) {
+      $('query-analysis').classList.remove('hidden');
+      
+      const timeRange = parseTimeRange(parsedData.time);
+      const timeRangeText = `${formatDate(timeRange.start)} - ${formatDate(timeRange.end)}`;
+      let logicText = `時間範圍 ${timeRangeText}`;
+      
+      if (parsedData.location.length > 0) {
+        logicText += parsedData.location.length === 1 ? 
+          ` + ${parsedData.location[0]}` : 
+          ` + (${parsedData.location.join(' OR ')})`;
+      }
+      if (parsedData.topic.length > 0) {
+        logicText += ` AND (${parsedData.topic.join(' OR ')})`;
+      }
+      
+      $('search-logic-display').textContent = logicText;
+      
+      // 使用 requestAnimationFrame 渲染
+      requestAnimationFrame(() => renderTable());
+    }
+
+    function parseTimeRange(timeStr) {
+      if (timeStr.includes('-')) {
+        const [startYear, endYear] = timeStr.split('-').map(y => parseInt(y));
+        return { 
+          start: new Date(startYear, 0, 1), 
+          end: new Date(endYear, 11, 31) 
+        };
+      } else {
+        const year = parseInt(timeStr);
+        return { 
+          start: new Date(year, 0, 1), 
+          end: new Date(year, 11, 31) 
+        };
+      }
+    }
+
+    // 使用批量處理和索引查找
+    function applySearchFilters(parsedData, normalizedQuery) {
+      const timeRange = parseTimeRange(parsedData.time);
+      
+      // 使用年份索引快速篩選
+      let timeFiltered = [];
+      const startYear = timeRange.start.getFullYear();
+      const endYear = timeRange.end.getFullYear();
+      
+      for (let year = startYear; year <= endYear; year++) {
+        if (state.indexes.yearIndex.has(year)) {
+          const yearIndices = state.indexes.yearIndex.get(year);
+          timeFiltered.push(...yearIndices.map(i => state.data[i]));
+        }
+      }
+
+      // 進一步按日期篩選
+      timeFiltered = timeFiltered.filter(item => {
+        if (!item._日期) return false;
+        return item._日期 >= timeRange.start && item._日期 <= timeRange.end;
+      });
+
+      // 使用並行處理進行文本匹配
+      const baseFiltered = timeFiltered.filter(item => {
+        const locationMatch = parsedData.location.some(locationWord => containsTextNormalized(item, locationWord));
+        const topicMatch = parsedData.topic.some(topicWord => containsTextNormalized(item, topicWord));
+        return locationMatch && topicMatch;
+      });
+
+      state.nlpSearch.baseFiltered = baseFiltered;
+      
+      state.filters = {
+        startDate: timeRange.start,
+        endDate: timeRange.end
+      };
+
+      const dateInput = $('date-range');
+      if (dateInput._flatpickr) {
+        dateInput._flatpickr.setDate([timeRange.start, timeRange.end]);
+      }
+
+      document.querySelectorAll('select').forEach(s => s.value = '');
+      state.sortOrder = 'relevance';
+      $('sort-order').value = 'relevance';
+      state.page = 1;
+      
+      state.filtered = baseFiltered;
+      
+      // 批量計算相關度分數
+      batchCalculateRelevanceScores(baseFiltered);
+      state.filtered.sort((a, b) => getRelevanceScore(b) - getRelevanceScore(a));
+      
+      $('filtered-count').textContent = state.filtered.length.toLocaleString();
+      updateSelects();
+      updateActiveFilters();
+      
+      // 使用 requestAnimationFrame 優化渲染時機
+      requestAnimationFrame(() => {
+        renderCharts();
+        renderTable();
+      });
+    }
+
+    // ========================================
+    // 傳統檢索功能
+    // ========================================
+    function performTraditionalSearch() {
+      const originalQuery = $('traditional-search-input').value.trim();
+      if (!originalQuery) { 
+        alert('請輸入檢索詞'); 
+        return; 
+      }
+      if (state.data.length === 0) { 
+        alert('資料尚未載入完成，請稍候'); 
+        return; 
+      }
+
+      const normalizedQuery = normalizeText(originalQuery);
+
+      try {
+        const searchTerms = parseTraditionalQuery(normalizedQuery);
+        const results = executeTraditionalSearch(searchTerms);
+        
+        state.traditionalSearch.isActive = true;
+        state.traditionalSearch.query = originalQuery;
+        state.traditionalSearch.normalizedQuery = normalizedQuery;
+        state.traditionalSearch.baseFiltered = results;
+        
+        displayTraditionalResult(originalQuery, normalizedQuery, results.length);
+        
+        state.filters = {};
+        document.querySelectorAll('select').forEach(s => s.value = '');
+        const dateInput = $('date-range');
+        if (dateInput._flatpickr) dateInput._flatpickr.clear();
+        
+        state.sortOrder = 'relevance';
+        $('sort-order').value = 'relevance';
+        state.page = 1;
+        
+        update();
+      } catch (error) {
+        console.error('傳統檢索失敗:', error);
+        alert('檢索語法錯誤，請檢查布林邏輯是否正確');
+      }
+    }
+
+    function parseTraditionalQuery(query) {
+      const tokens = query.trim().split(/\s+/);
+      const terms = [];
+      let currentTerm = { type: 'term', value: '', operator: null };
+      
+      for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i].toUpperCase();
+        
+        if (token === 'AND' || token === 'OR' || token === 'NOT') {
+          if (currentTerm.value) {
+            terms.push(currentTerm);
+            currentTerm = { type: 'term', value: '', operator: token };
+          } else {
+            currentTerm.operator = token;
+          }
+        } else {
+          if (currentTerm.value) {
+            currentTerm.value += ' ' + tokens[i];
+          } else {
+            currentTerm.value = tokens[i];
+          }
+        }
+      }
+      
+      if (currentTerm.value) {
+        terms.push(currentTerm);
+      }
+      
+      return terms;
+    }
+
+    // 使用批量處理
+    function executeTraditionalSearch(searchTerms) {
+      const selectedFields = state.traditionalSearch.fields;
+      
+      return state.data.filter(item => {
+        let result = true;
+        let hasPositiveMatch = false;
+        
+        for (const term of searchTerms) {
+          const termMatch = checkTermMatchNormalized(item, term.value, selectedFields);
+          
+          if (term.operator === 'NOT') {
+            if (termMatch) return false;
+          } else if (term.operator === 'OR') {
+            if (termMatch) hasPositiveMatch = true;
+          } else {
+            if (term.operator === 'AND') {
+              result = result && termMatch;
+            } else {
+              result = termMatch;
+              if (termMatch) hasPositiveMatch = true;
+            }
+          }
+        }
+        
+        return result && (hasPositiveMatch || searchTerms.length === 0);
+      });
+    }
+
+    function checkTermMatchNormalized(item, searchTerm, fields) {
+      const normalizedSearchTerm = normalizeText(searchTerm);
+      const searchStr = String(normalizedSearchTerm).toLowerCase();
+      
+      if (fields.includes('all')) {
+        return containsTextNormalized(item, normalizedSearchTerm);
+      }
+      
+      let match = false;
+      
+      if (fields.includes('題名') && item.題名) {
+        const normalizedTitle = normalizeText(item.題名);
+        match = match || String(normalizedTitle).toLowerCase().includes(searchStr);
+      }
+      
+      if (fields.includes('標題分類')) {
+        if (item.標題大分類) {
+          const normalizedMajor = normalizeText(item.標題大分類);
+          match = match || String(normalizedMajor).toLowerCase().includes(searchStr);
+        }
+        if (item.標題中分類) {
+          const normalizedMid = normalizeText(item.標題中分類);
+          match = match || String(normalizedMid).toLowerCase().includes(searchStr);
+        }
+      }
+      
+      if (fields.includes('關鍵詞') && item.關鍵詞列表) {
+        match = match || item.關鍵詞列表.some(kwGroup => {
+          const normalizedMajor = normalizeText(kwGroup.大分類 || '');
+          const normalizedMid = normalizeText(kwGroup.中分類 || '');
+          const normalizedMinor = normalizeText(kwGroup.小分類 || '');
+          
+          return String(normalizedMajor).toLowerCase().includes(searchStr) ||
+                 String(normalizedMid).toLowerCase().includes(searchStr) ||
+                 String(normalizedMinor).toLowerCase().includes(searchStr) ||
+                 (kwGroup.關鍵詞 && kwGroup.關鍵詞.some(kw => {
+                   const normalizedKw = normalizeText(kw || '');
+                   return String(normalizedKw).toLowerCase().includes(searchStr);
+                 }));
+        });
+      }
+      
+      return match;
+    }
+
+    function displayTraditionalResult(originalQuery, normalizedQuery, resultCount) {
+      $('traditional-result').classList.remove('hidden');
+      
+      const displayHtml = `
+        <strong>檢索語句：</strong>${safe(originalQuery)}<br>
+        <strong>檢索欄位：</strong>${state.traditionalSearch.fields.join(', ')}<br>
+        <strong>符合結果：</strong>${resultCount.toLocaleString()} 筆資料
+      `;
+      
+      $('traditional-result-display').innerHTML = displayHtml;
+    }
+
+    function handleFieldSelection(checkbox) {
+      const allCheckbox = document.querySelector('input[value="all"]');
+      const fieldCheckboxes = document.querySelectorAll('input[type="checkbox"]:not([value="all"])');
+      
+      if (checkbox.value === 'all') {
+        if (checkbox.checked) {
+          fieldCheckboxes.forEach(cb => cb.checked = false);
+          state.traditionalSearch.fields = ['all'];
+        } else {
+          state.traditionalSearch.fields = [];
+        }
+      } else {
+        if (checkbox.checked) {
+          allCheckbox.checked = false;
+          state.traditionalSearch.fields = state.traditionalSearch.fields.filter(f => f !== 'all');
+          if (!state.traditionalSearch.fields.includes(checkbox.value)) {
+            state.traditionalSearch.fields.push(checkbox.value);
+          }
+        } else {
+          state.traditionalSearch.fields = state.traditionalSearch.fields.filter(f => f !== checkbox.value);
+          if (state.traditionalSearch.fields.length === 0) {
+            allCheckbox.checked = true;
+            state.traditionalSearch.fields = ['all'];
+          }
+        }
+      }
+    }
+
+    // ========================================
+    // 共用檢索相關函數
+    // ========================================
+    // 使用緩存的正規化文本搜索
+    function containsTextNormalized(item, searchTerm) {
+      const cacheKey = `${item.資料編號}|${searchTerm}`;
+      if (CACHE.searchResults.has(cacheKey)) {
+        return CACHE.searchResults.get(cacheKey);
+      }
+
+      const normalizedSearchTerm = normalizeText(searchTerm);
+      const searchStr = String(normalizedSearchTerm).toLowerCase();
+      
+      let result = false;
+
+      // 檢索題名
+      if (item.題名) {
+        const normalizedTitle = normalizeText(item.題名);
+        if (String(normalizedTitle).toLowerCase().includes(searchStr)) {
+          result = true;
+        }
+      }
+      
+      // 檢索標題分類
+      if (!result && item.標題大分類) {
+        const normalizedMajor = normalizeText(item.標題大分類);
+        if (String(normalizedMajor).toLowerCase().includes(searchStr)) {
+          result = true;
+        }
+      }
+      if (!result && item.標題中分類) {
+        const normalizedMid = normalizeText(item.標題中分類);
+        if (String(normalizedMid).toLowerCase().includes(searchStr)) {
+          result = true;
+        }
+      }
+      
+      // 檢索關鍵詞
+      if (!result && item.關鍵詞列表) {
+        result = item.關鍵詞列表.some(kwGroup => {
+          const normalizedMajor = normalizeText(kwGroup.大分類 || '');
+          const normalizedMid = normalizeText(kwGroup.中分類 || '');
+          const normalizedMinor = normalizeText(kwGroup.小分類 || '');
+          
+          return String(normalizedMajor).toLowerCase().includes(searchStr) ||
+                 String(normalizedMid).toLowerCase().includes(searchStr) ||
+                 String(normalizedMinor).toLowerCase().includes(searchStr) ||
+                 (kwGroup.關鍵詞 && kwGroup.關鍵詞.some(kw => {
+                   const normalizedKw = normalizeText(kw || '');
+                   return String(normalizedKw).toLowerCase().includes(searchStr);
+                 }));
+        });
+      }
+      
+      CACHE.searchResults.set(cacheKey, result);
+      return result;
+    }
+
+    function containsText(item, searchTerm) {
+      return containsTextNormalized(item, searchTerm);
+    }
+
+    function getCurrentDataset() {
+      if (state.nlpSearch.isActive) return state.nlpSearch.baseFiltered;
+      if (state.traditionalSearch.isActive) return state.traditionalSearch.baseFiltered;
+      return state.data;
+    }
+
+    // 使用索引進行快速篩選
+    function getFilteredDataset() {
+      const baseData = getCurrentDataset();
+      const f = state.filters;
+      
+      return baseData.filter(r => {
+        if (f.startDate || f.endDate) {
+          if (!r._日期) return false;
+          if (f.startDate && r._日期 < f.startDate) return false;
+          if (f.endDate && r._日期 > f.endDate) return false;
+        }
+        
+        if (f.titleMajor && r.標題大分類 !== f.titleMajor) return false;
+        if (f.titleMid && r.標題中分類 !== f.titleMid) return false;
+
+        if (f.major || f.mid || f.minor || f.keyword) {
+          return r.關鍵詞列表.some(kw =>
+            (!f.major || kw.大分類 === f.major) && 
+            (!f.mid || kw.中分類 === f.mid) &&
+            (!f.minor || kw.小分類 === f.minor) && 
+            (!f.keyword || kw.關鍵詞.includes(f.keyword))
+          );
+        }
+        return true;
+      });
+    }
+
+    function containsSearchTerms(text) {
+      if (!text) return false;
+      
+      if (state.nlpSearch.isActive && state.nlpSearch.parsedData) {
+        const normalizedText = normalizeText(text);
+        const str = String(normalizedText).toLowerCase();
+        const searchTerms = [
+          ...(state.nlpSearch.parsedData.location || []), 
+          ...(state.nlpSearch.parsedData.topic || [])
+        ];
+        return searchTerms.some(term => {
+          const normalizedTerm = normalizeText(term || '');
+          return normalizedTerm && str.includes(String(normalizedTerm).toLowerCase());
+        });
+      }
+      
+      if (state.traditionalSearch.isActive) {
+        const normalizedText = normalizeText(text);
+        const normalizedQuery = normalizeText(state.traditionalSearch.query);
+        const str = String(normalizedText).toLowerCase();
+        const query = String(normalizedQuery).toLowerCase();
+        return str.includes(query);
+      }
+      
+      return false;
+    }
+
+    // 使用緩存的高亮顯示
+    const highlightCache = new Map();
+    function highlightSearchTerms(text) {
+      if (!text) return safe(text);
+      
+      const cacheKey = `${text}|${state.searchMode}|${state.nlpSearch.isActive}|${state.traditionalSearch.isActive}`;
+      if (highlightCache.has(cacheKey)) {
+        return highlightCache.get(cacheKey);
+      }
+
+      let highlightedText = safe(text);
+      let searchTerms = [];
+      
+      if (state.nlpSearch.isActive && state.nlpSearch.parsedData) {
+        searchTerms = [
+          ...(state.nlpSearch.parsedData.location || []), 
+          ...(state.nlpSearch.parsedData.topic || [])
+        ].filter(Boolean);
+      } else if (state.traditionalSearch.isActive) {
+        searchTerms = [state.traditionalSearch.normalizedQuery];
+      }
+      
+      if (searchTerms.length === 0) {
+        highlightCache.set(cacheKey, highlightedText);
+        return highlightedText;
+      }
+      
+      const sortedTerms = searchTerms.sort((a, b) => String(b).length - String(a).length);
+      
+      sortedTerms.forEach(term => {
+        if (term) {
+          const normalizedTerm = normalizeText(term);
+          if (highlightedText.includes(String(normalizedTerm))) {
+            const regex = new RegExp(`(${escapeRegExp(String(normalizedTerm))})`, 'gi');
+            highlightedText = highlightedText.replace(regex, '<mark class="bg-yellow-200 text-yellow-900 px-1 rounded">$1</mark>');
+          }
+          
+          if (String(term) !== String(normalizedTerm) && highlightedText.includes(String(term))) {
+            const regex = new RegExp(`(${escapeRegExp(String(term))})`, 'gi');
+            highlightedText = highlightedText.replace(regex, '<mark class="bg-yellow-200 text-yellow-900 px-1 rounded">$1</mark>');
+          }
+        }
+      });
+      
+      highlightCache.set(cacheKey, highlightedText);
+      return highlightedText;
+    }
+
+    // 批量計算相關度分數
+    function batchCalculateRelevanceScores(items) {
+      items.forEach(item => {
+        const cacheKey = `${item.資料編號}|${state.searchMode}`;
+        if (!CACHE.relevanceScores.has(cacheKey)) {
+          const score = calculateRelevanceScore(item);
+          CACHE.relevanceScores.set(cacheKey, score);
+        }
+      });
+    }
+
+    function getRelevanceScore(item) {
+      const cacheKey = `${item.資料編號}|${state.searchMode}`;
+      if (CACHE.relevanceScores.has(cacheKey)) {
+        return CACHE.relevanceScores.get(cacheKey);
+      }
+      const score = calculateRelevanceScore(item);
+      CACHE.relevanceScores.set(cacheKey, score);
+      return score;
+    }
+
+    function calculateRelevanceScore(item) {
+      let score = 0;
+      
+      if (state.nlpSearch.isActive && state.nlpSearch.parsedData) {
+        const searchTerms = [
+          ...(state.nlpSearch.parsedData.location || []), 
+          ...(state.nlpSearch.parsedData.topic || [])
+        ].filter(Boolean);
+        
+        searchTerms.forEach(term => {
+          const normalizedTerm = normalizeText(term);
+          const termStr = String(normalizedTerm).toLowerCase();
+          
+          if (item.題名) {
+            const normalizedTitle = normalizeText(item.題名);
+            if (String(normalizedTitle).toLowerCase().includes(termStr)) score += 100;
+          }
+          if (item.標題大分類) {
+            const normalizedMajor = normalizeText(item.標題大分類);
+            if (String(normalizedMajor).toLowerCase().includes(termStr)) score += 50;
+          }
+          if (item.標題中分類) {
+            const normalizedMid = normalizeText(item.標題中分類);
+            if (String(normalizedMid).toLowerCase().includes(termStr)) score += 50;
+          }
+          
+          if (item.關鍵詞列表 && Array.isArray(item.關鍵詞列表)) {
+            item.關鍵詞列表.forEach(kwGroup => {
+              if (kwGroup.大分類) {
+                const normalizedMajor = normalizeText(kwGroup.大分類);
+                if (String(normalizedMajor).toLowerCase().includes(termStr)) score += 10;
+              }
+              if (kwGroup.中分類) {
+                const normalizedMid = normalizeText(kwGroup.中分類);
+                if (String(normalizedMid).toLowerCase().includes(termStr)) score += 10;
+              }
+              if (kwGroup.小分類) {
+                const normalizedMinor = normalizeText(kwGroup.小分類);
+                if (String(normalizedMinor).toLowerCase().includes(termStr)) score += 10;
+              }
+              if (kwGroup.關鍵詞 && Array.isArray(kwGroup.關鍵詞)) {
+                kwGroup.關鍵詞.forEach(kw => {
+                  if (kw) {
+                    const normalizedKw = normalizeText(kw);
+                    if (String(normalizedKw).toLowerCase().includes(termStr)) score += 5;
+                  }
+                });
+              }
+            });
+          }
+        });
+      } else if (state.traditionalSearch.isActive) {
+        const normalizedQuery = normalizeText(state.traditionalSearch.query);
+        const query = String(normalizedQuery).toLowerCase();
+        
+        if (item.題名) {
+          const normalizedTitle = normalizeText(item.題名);
+          if (String(normalizedTitle).toLowerCase().includes(query)) score += 100;
+        }
+        if (item.標題大分類) {
+          const normalizedMajor = normalizeText(item.標題大分類);
+          if (String(normalizedMajor).toLowerCase().includes(query)) score += 50;
+        }
+        if (item.標題中分類) {
+          const normalizedMid = normalizeText(item.標題中分類);
+          if (String(normalizedMid).toLowerCase().includes(query)) score += 50;
+        }
+      }
+      
+      return score;
+    }
+
+    // 保留完整的自動設定上層分類邏輯
+    function autoSetParentCategories(filterKey, filterValue) {
+      if (!filterValue) return;
+      const baseData = getCurrentDataset();
+      
+      if (filterKey === 'titleMid' && !state.filters.titleMajor) {
+        const possibleMajors = unique(baseData
+          .filter(r => r.標題中分類 === filterValue)
+          .map(r => r.標題大分類));
+        
+        if (possibleMajors.length === 1) {
+          state.filters.titleMajor = possibleMajors[0];
+          $('title-major').value = possibleMajors[0];
+        }
+      } else if (filterKey === 'mid' && !state.filters.major) {
+        const possibleMajors = new Set();
+        baseData.forEach(item => {
+          if (item.關鍵詞列表) {
+            item.關鍵詞列表.forEach(kw => {
+              if (kw.中分類 === filterValue) {
+                possibleMajors.add(kw.大分類);
+              }
+            });
+          }
+        });
+        
+        if (possibleMajors.size === 1) {
+          const majorValue = Array.from(possibleMajors)[0];
+          state.filters.major = majorValue;
+          $('major-category').value = majorValue;
+        }
+      } else if (filterKey === 'minor' && (!state.filters.major || !state.filters.mid)) {
+        const possibleCombos = new Set();
+        baseData.forEach(item => {
+          if (item.關鍵詞列表) {
+            item.關鍵詞列表.forEach(kw => {
+              if (kw.小分類 === filterValue) {
+                possibleCombos.add(`${kw.大分類}|${kw.中分類}`);
+              }
+            });
+          }
+        });
+        
+        if (possibleCombos.size === 1) {
+          const [major, mid] = Array.from(possibleCombos)[0].split('|');
+          if (!state.filters.major) {
+            state.filters.major = major;
+            $('major-category').value = major;
+          }
+          if (!state.filters.mid) {
+            state.filters.mid = mid;
+            $('mid-category').value = mid;
+          }
+        }
+      } else if (filterKey === 'keyword' && (!state.filters.major || !state.filters.mid || !state.filters.minor)) {
+        const possibleCombos = new Set();
+        baseData.forEach(item => {
+          if (item.關鍵詞列表) {
+            item.關鍵詞列表.forEach(kw => {
+              if (kw.關鍵詞 && kw.關鍵詞.includes(filterValue)) {
+                possibleCombos.add(`${kw.大分類}|${kw.中分類}|${kw.小分類}`);
+              }
+            });
+          }
+        });
+        
+        if (possibleCombos.size === 1) {
+          const [major, mid, minor] = Array.from(possibleCombos)[0].split('|');
+          if (!state.filters.major) {
+            state.filters.major = major;
+            $('major-category').value = major;
+          }
+          if (!state.filters.mid) {
+            state.filters.mid = mid;
+            $('mid-category').value = mid;
+          }
+          if (!state.filters.minor) {
+            state.filters.minor = minor;
+            $('minor-category').value = minor;
+          }
+        }
+      }
+    }
+
+    function updateActiveFilters() {
+      const activeFiltersDiv = $('active-filters');
+      const filterTagsDiv = $('filter-tags');
+      
+      let hasFilters = false;
+      let tags = [];
+      
+      if (state.nlpSearch.isActive) {
+        tags.push({ type: 'search', text: `智能檢索: ${state.nlpSearch.query}`, removable: true });
+        hasFilters = true;
+      } else if (state.traditionalSearch.isActive) {
+        tags.push({ type: 'search', text: `傳統檢索: ${state.traditionalSearch.query}`, removable: true });
+        hasFilters = true;
+      }
+      
+      const filterMappings = [
+        { key: 'startDate', getText: () => {
+          if (state.filters.startDate && state.filters.endDate) {
+            if (state.filters.startDate.getTime() === state.filters.endDate.getTime()) {
+              return `日期: ${formatDate(state.filters.startDate)}`;
+            } else {
+              return `日期: ${formatDate(state.filters.startDate)} ~ ${formatDate(state.filters.endDate)}`;
+            }
+          } else if (state.filters.startDate) {
+            return `日期: 從 ${formatDate(state.filters.startDate)}`;
+          } else {
+            return `日期: 至 ${formatDate(state.filters.endDate)}`;
+          }
+        }, type: 'date' },
+        { key: 'titleMajor', getText: () => `標題大分類: ${state.filters.titleMajor}`, type: 'titleMajor' },
+        { key: 'titleMid', getText: () => `標題中分類: ${state.filters.titleMid}`, type: 'titleMid' },
+        { key: 'major', getText: () => `關鍵詞大分類: ${state.filters.major}`, type: 'major' },
+        { key: 'mid', getText: () => `關鍵詞中分類: ${state.filters.mid}`, type: 'mid' },
+        { key: 'minor', getText: () => `關鍵詞小分類: ${state.filters.minor}`, type: 'minor' },
+        { key: 'keyword', getText: () => `關鍵詞: ${state.filters.keyword}`, type: 'keyword' }
+      ];
+
+      filterMappings.forEach(mapping => {
+        if (mapping.key === 'startDate' ? (state.filters.startDate || state.filters.endDate) : state.filters[mapping.key]) {
+          tags.push({ type: mapping.type, text: mapping.getText(), removable: true });
+          hasFilters = true;
+        }
+      });
+      
+      if (hasFilters) {
+        filterTagsDiv.innerHTML = tags.map(tag => 
+          `<span class="filter-tag">${tag.text}${tag.removable ? `<span class="remove-filter" onclick="removeFilter('${tag.type}')">✕</span>` : ''}</span>`
+        ).join('');
+        activeFiltersDiv.classList.remove('hidden');
+      } else {
+        activeFiltersDiv.classList.add('hidden');
+      }
+    }
+
+    function removeFilter(filterType) {
+      const filterActions = {
+        search: () => {
+          clearAllSearches();
+          resetToDefault();
+        },
+        date: () => {
+          delete state.filters.startDate;
+          delete state.filters.endDate;
+          const dateInput = $('date-range');
+          if (dateInput._flatpickr) dateInput._flatpickr.clear();
+        },
+        titleMajor: () => {
+          delete state.filters.titleMajor;
+          $('title-major').value = '';
+        },
+        titleMid: () => {
+          delete state.filters.titleMid;
+          $('title-mid').value = '';
+        },
+        major: () => {
+          ['major', 'mid', 'minor', 'keyword'].forEach(key => delete state.filters[key]);
+          ['major-category', 'mid-category', 'minor-category', 'keyword'].forEach(id => $(id).value = '');
+        },
+        mid: () => {
+          ['mid', 'minor', 'keyword'].forEach(key => delete state.filters[key]);
+          ['mid-category', 'minor-category', 'keyword'].forEach(id => $(id).value = '');
+        },
+        minor: () => {
+          ['minor', 'keyword'].forEach(key => delete state.filters[key]);
+          ['minor-category', 'keyword'].forEach(id => $(id).value = '');
+        },
+        keyword: () => {
+          delete state.filters.keyword;
+          $('keyword').value = '';
+        }
+      };
+      
+      if (filterActions[filterType]) {
+        filterActions[filterType]();
+        update();
+      }
+    }
+
+    // ========================================
+    // 初始化與資料載入
+    // ========================================
+    async function init() {
+      const progress = (text, type = 'info') => {
+        const colors = { 
+          info: 'bg-blue-100 text-blue-700', 
+          ok: 'bg-green-100 text-green-700', 
+          error: 'bg-red-100 text-red-700' 
+        };
+        $('load-progress').className = `px-3 py-1 rounded border ${colors[type]}`;
+        $('load-progress').textContent = text;
+      };
+
+      try {
+        document.querySelectorAll('select, button, input').forEach(el => el.disabled = true);
+        progress('載入資料中...');
+
+        const urls = {
+          kw: [1, 2, 3, 4].map(i => `https://raw.githubusercontent.com/wendytsai1999/taiwan-history-dashboard/new/split_keywords${i}.json`),
+          title: [1, 2].map(i => `https://raw.githubusercontent.com/wendytsai1999/taiwan-history-dashboard/new/split_titles${i}.json`)
+        };
+
+        async function safeLoadJson(url) {
+          try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const text = await response.text();
+            if (!text.trim()) return [];
+            return JSON.parse(text);
+          } catch (error) {
+            console.error(`載入失敗 ${url}:`, error);
+            return [];
+          }
+        }
+
+        progress('載入關鍵詞資料...');
+        const keywordArrays = await Promise.all(urls.kw.map(safeLoadJson));
+        const keywords = keywordArrays.flat().filter(Boolean);
+        
+        progress('載入標題資料...');
+        const titleArrays = await Promise.all(urls.title.map(safeLoadJson));
+        const titles = titleArrays.flat().filter(Boolean);
+
+        progress('處理資料中...');
+        
+        // 使用 Map 來提高查找效能
+        const titleMap = new Map();
+        const kwMap = new Map();
+
+        // 批量處理標題資料
+        const titleBatch = titles.filter(t => Number(t.資料編號) > 0);
+        titleBatch.forEach(t => {
+          const id = Number(t.資料編號);
+          titleMap.set(id, {
+            資料編號: t.資料編號, 
+            時間: t.時間 || t.日期 || '', 
+            題名: t.題名 || '',
+            標題大分類: t.標題大分類 || '(未分類)', 
+            標題中分類: t.標題中分類 || '',
+            _日期: parseDate(t.時間 || t.日期), 
+            _年份: parseYear(t._年份 || t.時間 || t.日期)
+          });
+        });
+
+        // 批量處理關鍵詞資料
+        const keywordBatch = keywords.filter(k => Number(k.資料編號) > 0);
+        keywordBatch.forEach(k => {
+          const id = Number(k.資料編號);
+          if (!kwMap.has(id)) kwMap.set(id, []);
+          kwMap.get(id).push({
+            關鍵詞: parseKeywords(k.關鍵詞), 
+            大分類: k.大分類 || '(未分類)', 
+            中分類: k.中分類 || '', 
+            小分類: k.小分類 || ''
+          });
+        });
+
+        // 合併資料
+        state.data = Array.from(titleMap.values()).map(t => ({ 
+          ...t, 
+          關鍵詞列表: kwMap.get(Number(t.資料編號)) || [] 
+        }));
+        
+        progress('建立索引中...');
+        buildIndexes();
+        
+        state.filtered = state.data;
+        progress(`載入完成：${state.data.length.toLocaleString()} 筆資料`, 'ok');
+
+        document.querySelectorAll('select, button, input').forEach(el => el.disabled = false);
+        setupDatePicker();
+        setupEvents();
+        update();
+      } catch (e) {
+        progress(`載入失敗：${e.message}`, 'error');
+        console.error(e);
+      }
+    }
+
+    function setupDatePicker() {
+      flatpickr('#date-range', {
+        locale: 'zh_tw', 
+        mode: 'range', 
+        dateFormat: 'Y-m-d',
+        minDate: '1895-01-01', 
+        maxDate: '1945-12-31',
+        onClose: (dates) => {
+          if (dates.length === 2) {
+            state.filters.startDate = dates[0];
+            state.filters.endDate = dates[1];
+          } else if (dates.length === 1) {
+            state.filters.startDate = dates[0];
+            state.filters.endDate = dates[0];
+          } else {
+            delete state.filters.startDate;
+            delete state.filters.endDate;
+          }
+          update();
+        }
+      });
+    }
+
+    // ========================================
+    // 篩選與更新
+    // ========================================
+    function update() {
+      state.filtered = getFilteredDataset();
+      applySorting();
+      state.page = 1;
+      $('filtered-count').textContent = state.filtered.length.toLocaleString();
+      
+      // 使用 requestAnimationFrame 優化更新時機
+      requestAnimationFrame(() => {
+        updateSelects();
+        updateActiveFilters();
+      });
+      
+      // 延遲渲染重量級組件
+      setTimeout(() => {
+        renderTable();
+        renderCharts();
+      }, 50);
+    }
+
+    function applySorting() {
+      const sortFunctions = {
+        relevance: (a, b) => getRelevanceScore(b) - getRelevanceScore(a),
+        'date-asc': (a, b) => {
+          if (!a._日期 && !b._日期) return 0;
+          if (!a._日期) return 1;
+          if (!b._日期) return -1;
+          return a._日期 - b._日期;
+        },
+        'date-desc': (a, b) => {
+          if (!a._日期 && !b._日期) return 0;
+          if (!a._日期) return 1;
+          if (!b._日期) return -1;
+          return b._日期 - a._日期;
+        }
+      };
+      
+      if (sortFunctions[state.sortOrder]) {
+        state.filtered.sort(sortFunctions[state.sortOrder]);
+      }
+    }
+
+    // 保留完整的多選項顯示邏輯
+    function updateSelects() {
+      const fillSelect = (id, items, selected, multiSelected = []) => {
+        const selectElement = $(id);
+        
+        selectElement.innerHTML = '<option value="">全部</option>' +
+          items.map(item => {
+            const isSelected = item === selected;
+            const isMultiSelected = multiSelected.includes(item);
+            const className = isMultiSelected ? 
+              'style="background-color: #dbeafe; color: #1e40af; font-weight: bold;"' : '';
+            return `<option value="${item}" ${isSelected ? 'selected' : ''} ${className}>${item}</option>`;
+          }).join('');
+        
+        if (multiSelected.length > 1 && !selected) {
+          const allOption = selectElement.querySelector('option[value=""]');
+          if (allOption) {
+            allOption.textContent = multiSelected.join('/');
+            allOption.style.fontWeight = 'bold';
+            allOption.style.color = '#1e40af';
+          }
+        }
+        
+        if (selected) selectElement.value = selected;
+      };
+
+      const baseData = getCurrentDataset();
+      
+      // 標題分類選項
+      let titleMajorOptions = unique(baseData.map(r => r.標題大分類));
+      let titleMajorMultiSelected = [];
+      
+      if (state.filters.titleMid && !state.filters.titleMajor) {
+        titleMajorMultiSelected = unique(baseData
+          .filter(r => r.標題中分類 === state.filters.titleMid)
+          .map(r => r.標題大分類));
+      }
+      fillSelect('title-major', titleMajorOptions, state.filters.titleMajor, titleMajorMultiSelected);
+      
+      let titleMidOptions = state.filters.titleMajor ? 
+        unique(baseData.filter(r => r.標題大分類 === state.filters.titleMajor).map(r => r.標題中分類)) :
+        unique(baseData.map(r => r.標題中分類));
+      fillSelect('title-mid', titleMidOptions, state.filters.titleMid);
+
+      // 關鍵詞分類選項
+      const allKeywords = baseData.flatMap(r => r.關鍵詞列表);
+      let majorOptions = unique(allKeywords.map(k => k.大分類));
+      let majorMultiSelected = [];
+      
+      if (!state.filters.major && state.filters.mid) {
+        const possibleMajors = new Set();
+        baseData.forEach(item => {
+          if (item.關鍵詞列表) {
+            item.關鍵詞列表.forEach(kw => {
+              if (kw.中分類 === state.filters.mid) {
+                if (state.filters.minor && kw.小分類 !== state.filters.minor) return;
+                if (state.filters.keyword && (!kw.關鍵詞 || !kw.關鍵詞.includes(state.filters.keyword))) return;
+                possibleMajors.add(kw.大分類);
+              }
+            });
+          }
+        });
+        majorMultiSelected = Array.from(possibleMajors).sort();
+      }
+      fillSelect('major-category', majorOptions, state.filters.major, majorMultiSelected);
+      
+      let midOptions = state.filters.major ? 
+        unique(allKeywords.filter(k => k.大分類 === state.filters.major).map(k => k.中分類)) :
+        unique(allKeywords.map(k => k.中分類));
+      fillSelect('mid-category', midOptions, state.filters.mid);
+      
+      let minorOptions = [];
+      if (state.filters.major && state.filters.mid) {
+        minorOptions = unique(allKeywords.filter(k => k.大分類 === state.filters.major && k.中分類 === state.filters.mid).map(k => k.小分類));
+      } else if (state.filters.mid) {
+        minorOptions = unique(allKeywords.filter(k => k.中分類 === state.filters.mid).map(k => k.小分類));
+      } else {
+        minorOptions = unique(allKeywords.map(k => k.小分類));
+      }
+      fillSelect('minor-category', minorOptions, state.filters.minor);
+
+      // 熱門關鍵詞
+      const kwCount = {};
+      baseData.forEach(r => {
+        if (r.關鍵詞列表) {
+          r.關鍵詞列表.forEach(kw => {
+            if ((!state.filters.major || kw.大分類 === state.filters.major) &&
+                (!state.filters.mid || kw.中分類 === state.filters.mid) &&
+                (!state.filters.minor || kw.小分類 === state.filters.minor)) {
+              if (kw.關鍵詞) {
+                kw.關鍵詞.forEach(w => kwCount[w] = (kwCount[w] || 0) + 1);
+              }
+            }
+          });
+        }
+      });
+      
+      const topKeywords = Object.entries(kwCount).sort((a,b) => b[1]-a[1]).slice(0,20);
+      $('keyword').innerHTML = '<option value="">全部</option>' +
+        topKeywords.map(([k,c]) => 
+          `<option value="${k}" ${k === state.filters.keyword ? 'selected' : ''}>${k}（${c}）</option>`
+        ).join('');
+    }
+
+    function setupEvents() {
+      const selects = [
+        { id: 'title-major', key: 'titleMajor', clearChildren: ['titleMid'] },
+        { id: 'title-mid', key: 'titleMid' },
+        { id: 'major-category', key: 'major', clearChildren: ['mid', 'minor', 'keyword'] },
+        { id: 'mid-category', key: 'mid', clearChildren: ['minor', 'keyword'] },
+        { id: 'minor-category', key: 'minor', clearChildren: ['keyword'] },
+        { id: 'keyword', key: 'keyword', transform: v => v?.split('（')[0] || '' }
+      ];
+
+      selects.forEach(({ id, key, clearChildren, transform }) => {
+        $(id).onchange = function () {
+          const val = transform ? transform(this.value) : this.value;
+          
+          if (!val) {
+            delete state.filters[key];
+            if (clearChildren) {
+              clearChildren.forEach(childKey => {
+                delete state.filters[childKey];
+                const childId = childKey === 'titleMid' ? 'title-mid' : 
+                               childKey === 'mid' ? 'mid-category' :
+                               childKey === 'minor' ? 'minor-category' : 'keyword';
+                $(childId).value = '';
+              });
+            }
+          } else {
+            state.filters[key] = val;
+            autoSetParentCategories(key, val);
+            
+            // 驗證現有下層分類是否仍然有效
+            if (key === 'major' && state.filters.mid) {
+              const baseData = getCurrentDataset();
+              let midExists = baseData.some(r => 
+                r.關鍵詞列表?.some(kw => kw.大分類 === val && kw.中分類 === state.filters.mid)
+              );
+              
+              if (!midExists) {
+                delete state.filters.mid;
+                delete state.filters.minor;
+                delete state.filters.keyword;
+                $('mid-category').value = '';
+                $('minor-category').value = '';
+                $('keyword').value = '';
+              }
+            }
+            
+            if (key === 'mid' && state.filters.minor) {
+              const baseData = getCurrentDataset();
+              let minorExists = baseData.some(r => 
+                r.關鍵詞列表?.some(kw => 
+                  (!state.filters.major || kw.大分類 === state.filters.major) && 
+                  kw.中分類 === val && kw.小分類 === state.filters.minor
+                )
+              );
+              
+              if (!minorExists) {
+                delete state.filters.minor;
+                delete state.filters.keyword;
+                $('minor-category').value = '';
+                $('keyword').value = '';
+              }
+            }
+          }
+
+          update();
+        };
+      });
+
+      $('sort-order').onchange = function () { 
+        state.sortOrder = this.value; 
+        update(); 
+      };
+      
+      $('nlp-search-input').addEventListener('keypress', e => e.key === 'Enter' && performNLPSearch());
+      $('nlp-search-input').addEventListener('input', function() {
+        $('clear-search').style.display = this.value.trim() ? 'block' : 'none';
+      });
+      
+      $('traditional-search-input').addEventListener('keypress', e => e.key === 'Enter' && performTraditionalSearch());
+      $('traditional-search-input').addEventListener('input', function() {
+        $('clear-traditional-search').style.display = this.value.trim() ? 'block' : 'none';
+      });
+    }
+
+    // ========================================
+    // 表格與圖表渲染
+    // ========================================
+    // 使用虛擬滾動和批量DOM操作
+    function renderTable() {
+      const start = (state.page - 1) * 50;
+      const pageData = state.filtered.slice(start, start + 50);
+
+      // 使用 DocumentFragment 減少 DOM 重排
+      const fragment = document.createDocumentFragment();
+      const tableBody = $('table-body');
+      
+      // 清空表格
+      tableBody.innerHTML = '';
+
+      pageData.forEach((r, i) => {
+        const titleSearchMatch = containsSearchTerms(r.題名);
+        const titleMajorSearchMatch = containsSearchTerms(r.標題大分類);
+        const titleMidSearchMatch = containsSearchTerms(r.標題中分類);
+        
+        const titleMajorFilterMatch = !titleMajorSearchMatch && 
+          state.filters.titleMajor && r.標題大分類 === state.filters.titleMajor;
+        const titleMidFilterMatch = !titleMidSearchMatch && 
+          state.filters.titleMid && r.標題中分類 === state.filters.titleMid;
+
+        const getBlockStyle = (isSearchMatch, isFilterMatch) => {
+          if (isSearchMatch) return 'bg-yellow-100 border-yellow-300 text-yellow-900';
+          if (isFilterMatch) return 'bg-blue-100 border-blue-300 text-blue-900';
+          return 'bg-gray-100 border-gray-300 text-gray-800';
+        };
+
+        const titleBlock = `<div class="inline-block ${getBlockStyle(titleSearchMatch, false)} border rounded px-2 py-1 m-1 text-xs">
+          <span class="font-medium">${highlightSearchTerms(safe(r.題名))}</span>
+        </div>`;
+
+        const titleCategoryBlocks = (() => {
+          const majorClass = r.標題大分類 || '';
+          const midClass = r.標題中分類 || '';
+          if (!majorClass && !midClass) return '';
+          
+          const categoryText = midClass ? `${majorClass}/${midClass}` : majorClass;
+          const style = getBlockStyle(titleMajorSearchMatch || titleMidSearchMatch, titleMajorFilterMatch || titleMidFilterMatch);
+          
+          return `<div class="inline-block ${style} border rounded px-2 py-1 m-1 text-xs">
+            <span class="font-medium">${highlightSearchTerms(categoryText)}</span>
+          </div>`;
+        })();
+
+        const kwInfo = r.關鍵詞列表.map(kw => 
+          kw.關鍵詞.map(w => {
+            const kwSearchMatch = containsSearchTerms(w) || containsSearchTerms(kw.大分類) || 
+                                 containsSearchTerms(kw.中分類) || containsSearchTerms(kw.小分類);
+            
+            const kwFilterMatch = !kwSearchMatch && (
+              (!state.filters.major || kw.大分類 === state.filters.major) &&
+              (!state.filters.mid || kw.中分類 === state.filters.mid) &&
+              (!state.filters.minor || kw.小分類 === state.filters.minor) &&
+              (!state.filters.keyword || kw.關鍵詞.includes(state.filters.keyword))
+            ) && (
+              state.filters.major || state.filters.mid || state.filters.minor || state.filters.keyword
+            );
+            
+            const blockStyle = getBlockStyle(kwSearchMatch, kwFilterMatch);
+            const textStyle = kwSearchMatch ? 'text-yellow-900' : kwFilterMatch ? 'text-blue-900' : 'text-gray-800';
+            const subTextStyle = kwSearchMatch ? 'text-yellow-700' : kwFilterMatch ? 'text-blue-900' : 'text-gray-500';
+            
+            return `<div class="inline-block ${blockStyle} border rounded px-2 py-1 m-1 text-xs">
+              <span class="font-medium ${textStyle}">${highlightSearchTerms(w || '(無)')}</span><br>
+              <span class="${subTextStyle}">${highlightSearchTerms(kw.大分類)}/${highlightSearchTerms(kw.中分類)}/${highlightSearchTerms(kw.小分類)}</span>
+            </div>`;
+          }).join('')
+        ).join('');
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td class="border border-gray-300 px-2 py-1 text-center">${start + i + 1}</td>
+          <td class="border border-gray-300 px-2 py-1">${safe(r.資料編號)}</td>
+          <td class="border border-gray-300 px-2 py-1">${r._日期 ? formatDate(r._日期) : safe(r.時間)}</td>
+          <td class="border border-gray-300 px-2 py-1">${titleBlock}</td>
+          <td class="border border-gray-300 px-2 py-1">${titleCategoryBlocks}</td>
+          <td class="border border-gray-300 px-2 py-1">${kwInfo}</td>
+        `;
+        fragment.appendChild(row);
+      });
+
+      tableBody.appendChild(fragment);
+
+      const totalPages = Math.ceil(state.filtered.length / 50) || 1;
+      $('total-pages').textContent = totalPages;
+      $('page-input').value = state.page;
+      $('page-input').max = totalPages;
+    }
+
+    function renderCharts() {
+      // 使用 requestAnimationFrame 分批渲染圖表
+      requestAnimationFrame(() => renderYearChart());
+      requestAnimationFrame(() => renderPieChart('title'));
+      requestAnimationFrame(() => renderPieChart('keyword'));
+    }
+
+    // 使用緩存的年份分布數據
+    function renderYearChart() {
+      if (state.charts.year) state.charts.year.destroy();
+      
+      const yearCounts = {};
+      state.filtered.forEach(r => { 
+        if (r._年份) yearCounts[r._年份] = (yearCounts[r._年份] || 0) + 1; 
+      });
+
+      const years = Object.keys(yearCounts).map(Number).sort();
+      const counts = years.map(y => yearCounts[y]);
+
+      if (years.length > 0) {
+        state.charts.year = new Chart($('yearChart'), {
+          type: 'line',
+          data: {
+            labels: years,
+            datasets: [{
+              label: '資料筆數', 
+              data: counts, 
+              borderColor: '#2563eb', 
+              backgroundColor: 'rgba(37, 99, 235, 0.2)',
+              borderWidth: 3, 
+              fill: true, 
+              tension: 0.1, 
+              pointBackgroundColor: '#2563eb',
+              pointBorderColor: '#ffffff', 
+              pointBorderWidth: 2, 
+              pointRadius: 4
+            }]
+          },
+          options: {
+            responsive: true, 
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { 
+              y: { beginAtZero: true, ticks: { precision: 0 } }, 
+              x: { ticks: { maxTicksLimit: 15 } } 
+            }
+          }
+        });
+      }
+    }
+
+    function renderPieChart(type) {
+      const isTitle = type === 'title';
+      const pieState = state.pie[type];
+      const chartKey = isTitle ? 'titlePie' : 'keywordPie';
+      const canvasId = isTitle ? 'titleCategoryPie' : 'keywordCategoryPie';
+
+      if (state.charts[chartKey]) state.charts[chartKey].destroy();
+
+      let counts = {};
+      if (isTitle) {
+        const field = pieState.level === 'major' ? '標題大分類' : '標題中分類';
+        let data = state.filtered;
+        if (pieState.level === 'mid' && pieState.stack[0]) {
+          data = data.filter(d => d.標題大分類 === pieState.stack[0]);
+        }
+        data.forEach(r => { 
+          if (r[field]) counts[r[field]] = (counts[r[field]] || 0) + 1; 
+        });
+      } else {
+        const fieldMap = { major: '大分類', mid: '中分類', minor: '小分類' };
+        const field = fieldMap[pieState.level];
+        const validIds = new Set(state.filtered.map(r => Number(r.資料編號)));
+        const sourceData = getCurrentDataset();
+        
+        sourceData.forEach(r => {
+          if (!validIds.has(Number(r.資料編號))) return;
+          if (r.關鍵詞列表) {
+            r.關鍵詞列表.forEach(kw => {
+              if (pieState.level === 'mid' && pieState.stack[0] && kw.大分類 !== pieState.stack[0]) return;
+              if (pieState.level === 'minor' && pieState.stack[1] && kw.中分類 !== pieState.stack[1]) return;
+              if (kw[field]) counts[kw[field]] = (counts[kw[field]] || 0) + 1;
+            });
+          }
+        });
+      }
+
+      const labels = Object.keys(counts);
+      const values = Object.values(counts);
+
+      if (labels.length > 0) {
+        const colors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6',
+                       '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899',
+                       '#f43f5e', '#fb7185', '#fda4af', '#fbb6ce'];
+        
+        state.charts[chartKey] = new Chart($(canvasId), {
+          type: 'pie',
+          data: {
+            labels: labels.map((l, i) => `${l} (${values[i]})`),
+            datasets: [{
+              data: values,
+              backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+              borderColor: '#ffffff', 
+              borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true, 
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom' } },
+            onClick: (e, elements) => {
+              if (!elements.length) return;
+              const label = labels[elements[0].index];
+              if (isTitle && pieState.level === 'major') {
+                pieState.level = 'mid';
+                pieState.stack = [label];
+              } else if (!isTitle) {
+                if (pieState.level === 'major') {
+                  pieState.level = 'mid';
+                  pieState.stack = [label];
+                } else if (pieState.level === 'mid') {
+                  pieState.level = 'minor';
+                  pieState.stack.push(label);
+                }
+              }
+              renderPieChart(type);
+            }
+          }
+        });
+      }
+
+      $(type + 'PieBackBtn').innerHTML = pieState.level !== 'major' ?
+        `<button class='text-gray-600 underline text-sm' onclick="backPie('${type}')">返回上一層</button>` : '';
+      $(type + 'DataCount').textContent = 
+        `目前：${Object.values(counts).reduce((a, b) => a + b, 0)}${isTitle ? '筆資料' : '個關鍵詞'}`;
+    }
+
+    // ========================================
+    // 輔助函數與全域函數
+    // ========================================
+    function setExampleQuery(query) {
+      $('nlp-search-input').value = query;
+      $('clear-search').style.display = 'block';
+    }
+
+    function clearSearchInput() {
+      $('nlp-search-input').value = '';
+      $('clear-search').style.display = 'none';
+      clearAllSearches();
+      resetToDefault();
+    }
+
+    function clearTraditionalSearchInput() {
+      $('traditional-search-input').value = '';
+      $('clear-traditional-search').style.display = 'none';
+      clearAllSearches();
+      resetToDefault();
+    }
+
+    // 全域函數
+    window.nextPage = () => {
+      if (state.page < Math.ceil(state.filtered.length / 50)) { 
+        state.page++; 
+        renderTable(); 
+      }
+    };
+    
+    window.prevPage = () => { 
+      if (state.page > 1) { 
+        state.page--; 
+        renderTable(); 
+      } 
+    };
+    
+    window.gotoPage = () => {
+      const n = +$('page-input').value;
+      const max = Math.ceil(state.filtered.length / 50);
+      if (n >= 1 && n <= max) { 
+        state.page = n; 
+        renderTable(); 
+      }
+    };
+    
+    window.resetFilters = () => {
+      clearAllSearches();
+      resetToDefault();
+    };
+    
+    window.backPie = (type) => {
+      const p = state.pie[type];
+      if (p.level === 'minor') { 
+        p.level = 'mid'; 
+        p.stack.pop(); 
+      } else if (p.level === 'mid') { 
+        p.level = 'major'; 
+        p.stack = []; 
+      }
+      renderPieChart(type);
+    };
+    
+    // 導出全域函數
+    window.switchSearchMode = switchSearchMode;
+    window.performNLPSearch = performNLPSearch;
+    window.performTraditionalSearch = performTraditionalSearch;
+    window.handleFieldSelection = handleFieldSelection;
+    window.setExampleQuery = setExampleQuery;
+    window.clearSearchInput = clearSearchInput;
+    window.clearTraditionalSearchInput = clearTraditionalSearchInput;
+    window.removeFilter = removeFilter;
+
+    // ========================================
+    // 效能監控和記憶體管理
+    // ========================================
+    // 定期清理緩存以防止記憶體洩漏
+    setInterval(() => {
+      // 清理過期的緩存項目
+      const maxCacheSize = 1000;
+      
+      if (CACHE.normalizedTexts.size > maxCacheSize) {
+        const keys = Array.from(CACHE.normalizedTexts.keys()).slice(0, maxCacheSize / 2);
+        keys.forEach(key => CACHE.normalizedTexts.delete(key));
+      }
+      
+      if (CACHE.searchResults.size > maxCacheSize) {
+        const keys = Array.from(CACHE.searchResults.keys()).slice(0, maxCacheSize / 2);
+        keys.forEach(key => CACHE.searchResults.delete(key));
+      }
+      
+      if (highlightCache.size > maxCacheSize) {
+        const keys = Array.from(highlightCache.keys()).slice(0, maxCacheSize / 2);
+        keys.forEach(key => highlightCache.delete(key));
+      }
+    }, 300000); // 每5分鐘清理一次
+
+    // 啟動應用程式
+    init();
+  </script>
+</body>
+</html>
