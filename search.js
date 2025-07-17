@@ -1,468 +1,813 @@
-// search.js - 搜尋模組
-// 這個模組專門處理智能檢索和傳統檢索功能
+// search.js - 修正版搜尋管理模組
 
-(function(global) {
-  'use strict';
+// ========================================
+// 搜尋管理類別
+// ========================================
 
-  // 取得其他模組
-  const Utils = global.TaiwanNewsApp.Utils;
-  const DataManager = global.TaiwanNewsApp.DataManager;
-
-  // ========================================
-  // 私有變數和設定
-  // ========================================
-  
-  // 模擬查詢資料 - 實際上應該來自 AI 服務
-  const MOCK_QUERY_DATA = {
-    '日治時期高雄港是怎麼建起來的？': { time: '1895-1945', location: ['高雄港', '高雄', '港'], topic: ['高雄港', '港口', '建設'] },
-    '日治時期有填海造陸的工程嗎？': { time: '1895-1945', location: ['臺灣'], topic: ['填海造陸', '填海', '工程'] },
-    '日治時期如何進行司法審判？': { time: '1895-1945', location: ['臺灣'], topic: ['司法審判', '審判'] },
-    '嘉義發生過哪些社會案件？': { time: '1895-1945', location: ['嘉義'], topic: ['社會案件'] },
-    '日治時期的台灣，有哪些流行病？': { time: '1895-1945', location: ['臺灣'], topic: ['流行病'] },
-    '日治時期的臺灣，有哪些流行病？': { time: '1895-1945', location: ['臺灣'], topic: ['流行病'] },
-    '1908年之後，台灣鐵路建設情況': { time: '1908-1945', location: ['臺灣'], topic: ['鐵路建設', '鐵路', '建設'] },
-    '1908年之後，臺灣鐵路建設情況': { time: '1908-1945', location: ['臺灣'], topic: ['鐵路建設', '鐵路', '建設'] },
-    '日治初期有哪些鎮壓原住民的措施': { time: '1895-1915', location: ['臺灣'], topic: ['鎮壓原住民', '原住民', '鎮壓', '措施'] },
-    '大稻埕跟茶業的關係': { time: '1895-1945', location: ['大稻埕', '臺北'], topic: ['茶業', '產業', '貿易'] },
-    '製糖公司大多分布在哪些縣市？': { time: '1895-1945', location: ['臺灣'], topic: ['製糖公司', '製糖', '產業分布'] }
-  };
-
-  // 搜尋相關緩存
-  const searchCache = {
-    results: new Map(),
-    relevanceScores: new Map()
-  };
-
-  // ========================================
-  // 私有函數
-  // ========================================
-
-  // 模擬 AI 查詢解析
-  async function parseQuery(query) {
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    return MOCK_QUERY_DATA[query] || { time: '1895-1945', location: ['臺灣'], topic: ['資料'] };
+class SearchManager {
+  constructor() {
+    // 依賴
+    this.dataManager = null;
+    this.utils = null;
+    
+    // 搜尋快取
+    this.cache = new Map();
+    this.maxCacheSize = 100;
+    
+    // 檢索欄位配置 - 修正版
+    this.SEARCH_FIELDS = {
+      'all': {
+        name: '不限欄位',
+        fields: ['題名', '作者', '標題大分類', '標題中分類', '分類', '分類(一)', '分類(二)', '分類(三)', '刊別', '版次', '關鍵詞'],
+        weight: 1
+      },
+      'title': {
+        name: '題名',
+        fields: ['題名', '標題大分類', '標題中分類'],
+        weight: 3
+      },
+      'author': {
+        name: '作者',
+        fields: ['作者'],
+        weight: 2
+      },
+      'category': {
+        name: '分類',
+        fields: ['分類', '分類(一)', '分類(二)', '分類(三)'],
+        weight: 2
+      },
+      'keyword': {
+        name: '關鍵詞',
+        fields: ['關鍵詞'],
+        weight: 1.5
+      }
+    };
+    
+    // 模擬查詢模式庫
+    this.QUERY_PATTERNS = new Map([
+      ['高雄港', { time: '1895-1945', location: ['高雄港', '高雄'], topic: ['港口', '建設'] }],
+      ['填海造陸', { time: '1895-1945', location: ['臺灣'], topic: ['填海造陸', '工程'] }],
+      ['司法審判', { time: '1895-1945', location: ['臺灣'], topic: ['司法', '法院', '審判'] }],
+      ['嘉義', { time: '1895-1945', location: ['嘉義'], topic: ['社會', '案件'] }],
+      ['流行病', { time: '1895-1945', location: ['臺灣'], topic: ['疾病', '醫療'] }],
+      ['鐵路', { time: '1908-1945', location: ['臺灣'], topic: ['鐵路', '交通'] }],
+      ['原住民', { time: '1895-1915', location: ['臺灣'], topic: ['原住民', '政策'] }],
+      ['茶業', { time: '1895-1945', location: ['大稻埕'], topic: ['茶業', '貿易'] }],
+      ['製糖', { time: '1895-1945', location: ['臺灣'], topic: ['製糖', '產業'] }]
+    ]);
   }
 
-  // 解析時間範圍
-  function parseTimeRange(timeStr) {
-    if (timeStr.includes('-')) {
-      const [startYear, endYear] = timeStr.split('-').map(y => parseInt(y));
-      return { 
-        start: new Date(startYear, 0, 1), 
-        end: new Date(endYear, 11, 31) 
-      };
-    } else {
-      const year = parseInt(timeStr);
-      return { 
-        start: new Date(year, 0, 1), 
-        end: new Date(year, 11, 31) 
-      };
-    }
+  // 初始化
+  init(dataManager, utils) {
+    this.dataManager = dataManager;
+    this.utils = utils;
   }
 
-  // 檢查文本是否包含搜尋詞（使用正規化）
-  function containsTextNormalized(item, searchTerm) {
-    const cacheKey = `${item.資料編號}|${searchTerm}`;
-    if (searchCache.results.has(cacheKey)) {
-      return searchCache.results.get(cacheKey);
+  // ========================================
+  // 智能檢索
+  // ========================================
+
+  async performSmartSearch(originalQuery, statusCallback, resultCallback) {
+    if (!originalQuery?.trim()) {
+      throw new Error('請輸入查詢語句');
+    }
+    
+    if (!this.dataManager?.isDataLoaded()) {
+      throw new Error('資料尚未載入完成，請稍候');
     }
 
-    const normalizedSearchTerm = Utils.normalizeText(searchTerm);
-    const searchStr = String(normalizedSearchTerm).toLowerCase();
-    
-    let result = false;
+    try {
+      if (statusCallback) statusCallback(true);
 
-    // 檢索題名
-    if (item.題名) {
-      const normalizedTitle = Utils.normalizeText(item.題名);
-      if (String(normalizedTitle).toLowerCase().includes(searchStr)) {
-        result = true;
-      }
-    }
-    
-    // 檢索標題分類
-    if (!result && item.標題大分類) {
-      const normalizedMajor = Utils.normalizeText(item.標題大分類);
-      if (String(normalizedMajor).toLowerCase().includes(searchStr)) {
-        result = true;
-      }
-    }
-    if (!result && item.標題中分類) {
-      const normalizedMid = Utils.normalizeText(item.標題中分類);
-      if (String(normalizedMid).toLowerCase().includes(searchStr)) {
-        result = true;
-      }
-    }
-    
-    // 檢索關鍵詞
-    if (!result && item.關鍵詞列表) {
-      result = item.關鍵詞列表.some(kwGroup => {
-        const normalizedMajor = Utils.normalizeText(kwGroup.大分類 || '');
-        const normalizedMid = Utils.normalizeText(kwGroup.中分類 || '');
-        const normalizedMinor = Utils.normalizeText(kwGroup.小分類 || '');
-        
-        return String(normalizedMajor).toLowerCase().includes(searchStr) ||
-               String(normalizedMid).toLowerCase().includes(searchStr) ||
-               String(normalizedMinor).toLowerCase().includes(searchStr) ||
-               (kwGroup.關鍵詞 && kwGroup.關鍵詞.some(kw => {
-                 const normalizedKw = Utils.normalizeText(kw || '');
-                 return String(normalizedKw).toLowerCase().includes(searchStr);
-               }));
+      const parsedData = await this.parseSmartQuery(originalQuery);
+      const timeRange = this.parseTimeRange(parsedData.time);
+      
+      const allData = this.dataManager.getAllData();
+      
+      // 時間篩選
+      const timeFiltered = allData.filter(item => {
+        if (!item._日期) return false;
+        return item._日期 >= timeRange.start && item._日期 <= timeRange.end;
       });
+
+      // 內容篩選
+      const searchTerms = [...(parsedData.location || []), ...(parsedData.topic || [])];
+      const results = timeFiltered.filter(item => {
+        const locationMatch = parsedData.location.some(term => 
+          this.containsTextNormalized(item, term));
+        const topicMatch = parsedData.topic.some(term => 
+          this.containsTextNormalized(item, term));
+        return locationMatch && topicMatch;
+      });
+
+      // 計算相關度分數
+      this.calculateSmartRelevanceScores(results, searchTerms);
+      
+      // 排序
+      results.sort((a, b) => (b._relevanceScore || 0) - (a._relevanceScore || 0));
+
+      const result = {
+        query: originalQuery,
+        normalizedQuery: this.utils ? this.utils.normalizeText(originalQuery) : originalQuery,
+        parsedData: parsedData,
+        results: results,
+        timeRange: timeRange,
+        mode: 'smart'
+      };
+
+      if (statusCallback) statusCallback(false);
+      if (resultCallback) resultCallback(result);
+      
+      return result;
+    } catch (error) {
+      if (statusCallback) statusCallback(false);
+      throw error;
     }
-    
-    searchCache.results.set(cacheKey, result);
-    return result;
   }
 
-  // 計算相關度分數
-  function calculateRelevanceScore(item, searchTerms, searchMode) {
-    const cacheKey = `${item.資料編號}|${searchMode}|${searchTerms.join('|')}`;
-    if (searchCache.relevanceScores.has(cacheKey)) {
-      return searchCache.relevanceScores.get(cacheKey);
+  async parseSmartQuery(query) {
+    const normalizedQuery = this.utils ? this.utils.normalizeText(query) : query;
+    
+    // 檢查快取
+    if (this.cache.has(normalizedQuery)) {
+      return this.cache.get(normalizedQuery);
     }
 
-    let score = 0;
+    // 模擬AI解析延遲
+    await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 100));
     
-    searchTerms.forEach(term => {
-      const normalizedTerm = Utils.normalizeText(term);
-      const termStr = String(normalizedTerm).toLowerCase();
+    let bestMatch = null;
+    let maxScore = 0;
+    
+    // 查找最佳匹配模式
+    for (const [pattern, config] of this.QUERY_PATTERNS) {
+      const score = this.calculateSimilarity(normalizedQuery, pattern);
+      if (score > maxScore) {
+        maxScore = score;
+        bestMatch = config;
+      }
+    }
+    
+    // 如果沒有好的匹配，創建默認配置
+    if (maxScore < 0.3) {
+      bestMatch = {
+        time: '1895-1945',
+        location: ['臺灣'],
+        topic: this.extractTopicsFromQuery(normalizedQuery)
+      };
+    }
+    
+    // 快取結果
+    this.setCache(normalizedQuery, bestMatch);
+    
+    return bestMatch;
+  }
+
+  // ========================================
+  // 一般檢索 - 修正版
+  // ========================================
+
+  performGeneralSearch(query, fieldType = 'all', operator = 'AND') {
+    if (!query?.trim()) {
+      throw new Error('請輸入檢索詞');
+    }
+    
+    if (!this.dataManager?.isDataLoaded()) {
+      throw new Error('資料尚未載入完成，請稍候');
+    }
+
+    try {
+      console.log('[SearchManager] 執行一般檢索:', { query, fieldType, operator });
       
-      if (item.題名) {
-        const normalizedTitle = Utils.normalizeText(item.題名);
-        if (String(normalizedTitle).toLowerCase().includes(termStr)) score += 100;
-      }
-      if (item.標題大分類) {
-        const normalizedMajor = Utils.normalizeText(item.標題大分類);
-        if (String(normalizedMajor).toLowerCase().includes(termStr)) score += 50;
-      }
-      if (item.標題中分類) {
-        const normalizedMid = Utils.normalizeText(item.標題中分類);
-        if (String(normalizedMid).toLowerCase().includes(termStr)) score += 50;
-      }
+      const searchTerms = this.parseGeneralQuery(query, operator);
+      const allData = this.dataManager.getAllData();
       
-      if (item.關鍵詞列表 && Array.isArray(item.關鍵詞列表)) {
-        item.關鍵詞列表.forEach(kwGroup => {
-          if (kwGroup.大分類) {
-            const normalizedMajor = Utils.normalizeText(kwGroup.大分類);
-            if (String(normalizedMajor).toLowerCase().includes(termStr)) score += 10;
-          }
-          if (kwGroup.中分類) {
-            const normalizedMid = Utils.normalizeText(kwGroup.中分類);
-            if (String(normalizedMid).toLowerCase().includes(termStr)) score += 10;
-          }
-          if (kwGroup.小分類) {
-            const normalizedMinor = Utils.normalizeText(kwGroup.小分類);
-            if (String(normalizedMinor).toLowerCase().includes(termStr)) score += 10;
-          }
-          if (kwGroup.關鍵詞 && Array.isArray(kwGroup.關鍵詞)) {
-            kwGroup.關鍵詞.forEach(kw => {
-              if (kw) {
-                const normalizedKw = Utils.normalizeText(kw);
-                if (String(normalizedKw).toLowerCase().includes(termStr)) score += 5;
-              }
-            });
-          }
-        });
+      console.log('[SearchManager] 搜尋條件:', searchTerms);
+      console.log('[SearchManager] 資料總數:', allData.length);
+      
+      const results = allData.filter(item => 
+        this.searchInFields(item, searchTerms, fieldType, operator));
+
+      console.log('[SearchManager] 篩選後結果數:', results.length);
+
+      // 計算相關度分數
+      this.calculateGeneralRelevanceScores(results, searchTerms, fieldType);
+      
+      // 排序
+      results.sort((a, b) => (b._relevanceScore || 0) - (a._relevanceScore || 0));
+
+      return {
+        query: query,
+        normalizedQuery: this.utils ? this.utils.normalizeText(query) : query,
+        results: results,
+        fieldType: fieldType,
+        operator: operator,
+        searchTerms: searchTerms,
+        mode: 'general'
+      };
+    } catch (error) {
+      console.error('[SearchManager] 一般檢索錯誤:', error);
+      throw new Error('檢索語法錯誤，請檢查輸入內容');
+    }
+  }
+
+  // ========================================
+  // 進階檢索 - 修正版邏輯運算
+  // ========================================
+
+  performAdvancedSearch(conditions) {
+    if (!conditions?.length) {
+      throw new Error('請設定檢索條件');
+    }
+    
+    if (!this.dataManager?.isDataLoaded()) {
+      throw new Error('資料尚未載入完成，請稍候');
+    }
+
+    try {
+      console.log('[SearchManager] 執行進階檢索:', conditions);
+      
+      const allData = this.dataManager.getAllData();
+      
+      const results = allData.filter(item => {
+        return this.evaluateAdvancedConditions(item, conditions);
+      });
+
+      console.log('[SearchManager] 進階檢索完成，結果筆數:', results.length);
+
+      // 計算相關度分數
+      this.calculateAdvancedRelevanceScores(results, conditions);
+      
+      // 排序
+      results.sort((a, b) => (b._relevanceScore || 0) - (a._relevanceScore || 0));
+
+      return {
+        query: conditions.map((c, i) => {
+          const op = i > 0 ? ` ${conditions[i].operator} ` : '';
+          return `${op}${c.field}:${c.value}`;
+        }).join(''),
+        results: results,
+        conditions: conditions,
+        mode: 'advanced'
+      };
+    } catch (error) {
+      console.error('[SearchManager] 進階檢索錯誤:', error, error && error.stack);
+      throw new Error('進階檢索語法錯誤，請檢查輸入內容: ' + (error && error.message));
+    }
+  }
+
+  // 評估進階檢索條件 - 修正邏輯運算
+  evaluateAdvancedConditions(item, conditions) {
+    // 如果全部條件都是不限欄位 AND
+    if (conditions.every(c => c.field === 'all' && c.operator === 'AND')) {
+      const allTerms = conditions.map(c => c.value).join(' ');
+      const searchTerms = this.parseGeneralQuery(allTerms, 'AND');
+      return this.searchInFields(item, searchTerms, 'all', 'AND');
+    }
+    // 其他情況維持原本邏輯
+    if (!conditions?.length) return false;
+    let result = null;
+    for (let i = 0; i < conditions.length; i++) {
+      const condition = conditions[i];
+      const searchTerms = this.parseGeneralQuery(condition.value, 'OR');
+      const match = this.searchInFields(item, searchTerms, condition.field, 'OR');
+      if (i === 0) {
+        result = match;
+      } else {
+        switch (condition.operator) {
+          case 'AND':
+            result = result && match;
+            break;
+          case 'OR':
+            result = result || match;
+            break;
+          case 'NOT':
+            result = result && !match;
+            break;
+          default:
+            result = result && match;
+        }
+      }
+      if (!result && i < conditions.length - 1 && conditions[i + 1].operator === 'AND') {
+        return false;
+      }
+    }
+    return result || false;
+  }
+
+  // ========================================
+  // 資料瀏覽模式
+  // ========================================
+
+  getBrowseData(sortBy = 'date', order = 'desc') {
+    if (!this.dataManager?.isDataLoaded()) {
+      return { results: [], mode: 'browse', sortBy, order };
+    }
+    
+    const allData = this.dataManager.getAllData();
+    
+    const sorted = [...allData].sort((a, b) => {
+      switch (sortBy) {
+        case 'date':
+          if (!a._日期 && !b._日期) return 0;
+          if (!a._日期) return 1;
+          if (!b._日期) return -1;
+          return order === 'desc' ? b._日期 - a._日期 : a._日期 - b._日期;
+        
+        case 'title':
+          const titleA = a.題名 || '';
+          const titleB = b.題名 || '';
+          return order === 'desc' ? 
+            titleB.localeCompare(titleA, 'zh-TW') : 
+            titleA.localeCompare(titleB, 'zh-TW');
+        
+        case 'category':
+          const catA = a.標題大分類 || '';
+          const catB = b.標題大分類 || '';
+          return order === 'desc' ? 
+            catB.localeCompare(catA, 'zh-TW') : 
+            catA.localeCompare(catB, 'zh-TW');
+        
+        default:
+          return 0;
       }
     });
     
-    searchCache.relevanceScores.set(cacheKey, score);
-    return score;
-  }
-
-  // 解析傳統檢索查詢
-  function parseTraditionalQuery(query) {
-    const tokens = query.trim().split(/\s+/);
-    const terms = [];
-    let currentTerm = { type: 'term', value: '', operator: null };
-    
-    for (let i = 0; i < tokens.length; i++) {
-      const token = tokens[i].toUpperCase();
-      
-      if (token === 'AND' || token === 'OR' || token === 'NOT') {
-        if (currentTerm.value) {
-          terms.push(currentTerm);
-          currentTerm = { type: 'term', value: '', operator: token };
-        } else {
-          currentTerm.operator = token;
-        }
-      } else {
-        if (currentTerm.value) {
-          currentTerm.value += ' ' + tokens[i];
-        } else {
-          currentTerm.value = tokens[i];
-        }
-      }
-    }
-    
-    if (currentTerm.value) {
-      terms.push(currentTerm);
-    }
-    
-    return terms;
-  }
-
-  // 檢查項目是否符合傳統檢索條件
-  function checkTermMatchNormalized(item, searchTerm, fields) {
-    const normalizedSearchTerm = Utils.normalizeText(searchTerm);
-    const searchStr = String(normalizedSearchTerm).toLowerCase();
-    
-    if (fields.includes('all')) {
-      return containsTextNormalized(item, normalizedSearchTerm);
-    }
-    
-    let match = false;
-    
-    if (fields.includes('題名') && item.題名) {
-      const normalizedTitle = Utils.normalizeText(item.題名);
-      match = match || String(normalizedTitle).toLowerCase().includes(searchStr);
-    }
-    
-    if (fields.includes('標題分類')) {
-      if (item.標題大分類) {
-        const normalizedMajor = Utils.normalizeText(item.標題大分類);
-        match = match || String(normalizedMajor).toLowerCase().includes(searchStr);
-      }
-      if (item.標題中分類) {
-        const normalizedMid = Utils.normalizeText(item.標題中分類);
-        match = match || String(normalizedMid).toLowerCase().includes(searchStr);
-      }
-    }
-    
-    if (fields.includes('關鍵詞') && item.關鍵詞列表) {
-      match = match || item.關鍵詞列表.some(kwGroup => {
-        const normalizedMajor = Utils.normalizeText(kwGroup.大分類 || '');
-        const normalizedMid = Utils.normalizeText(kwGroup.中分類 || '');
-        const normalizedMinor = Utils.normalizeText(kwGroup.小分類 || '');
-        
-        return String(normalizedMajor).toLowerCase().includes(searchStr) ||
-               String(normalizedMid).toLowerCase().includes(searchStr) ||
-               String(normalizedMinor).toLowerCase().includes(searchStr) ||
-               (kwGroup.關鍵詞 && kwGroup.關鍵詞.some(kw => {
-                 const normalizedKw = Utils.normalizeText(kw || '');
-                 return String(normalizedKw).toLowerCase().includes(searchStr);
-               }));
-      });
-    }
-    
-    return match;
+    return {
+      results: sorted,
+      mode: 'browse',
+      sortBy: sortBy,
+      order: order
+    };
   }
 
   // ========================================
-  // 公開的 API
+  // 搜尋核心方法 - 修正版
   // ========================================
-  const SearchManager = {
-    // 智能檢索
-    async performNLPSearch(originalQuery, statusCallback, resultCallback) {
-      if (!originalQuery || !originalQuery.trim()) {
-        throw new Error('請輸入查詢語句');
+
+  parseGeneralQuery(query, operator = 'AND') {
+    if (!query?.trim()) return [];
+    
+    const normalizedQuery = this.utils ? this.utils.normalizeText(query.trim()) : query.trim();
+    
+    let terms = [];
+    
+    if (operator === 'AND') {
+      terms = normalizedQuery.split(/\s+AND\s+/i);
+      if (terms.length === 1) {
+        terms = normalizedQuery.split(/\s+/);
       }
-      
-      if (!DataManager.isDataLoaded()) {
-        throw new Error('資料尚未載入完成，請稍候');
+    } else if (operator === 'OR') {
+      terms = normalizedQuery.split(/\s+OR\s+/i);
+    } else {
+      terms = normalizedQuery.split(/\s+/);
+    }
+    
+    return terms.filter(term => term.length > 0).map(term => ({
+      value: term.trim(),
+      operator: operator,
+      type: 'term'
+    }));
+  }
+
+  searchInFields(item, searchTerms, fieldType, operator = 'AND') {
+    if (!item || !searchTerms?.length) return false;
+    
+    const fieldConfig = this.SEARCH_FIELDS[fieldType] || this.SEARCH_FIELDS['all'];
+    
+    const matches = searchTerms.map(term => {
+      const normalizedTerm = this.utils ? 
+        this.utils.normalizeText(term.value).toLowerCase() : 
+        term.value.toLowerCase();
+      let found = false;
+      for (const field of fieldConfig.fields) {
+        const fieldValue = this.extractFieldValue(item, field);
+        const normalizedValue = this.utils ? 
+          this.utils.normalizeText(fieldValue).toLowerCase() : 
+          fieldValue.toLowerCase();
+        const hit = normalizedValue.includes(normalizedTerm);
+        if (hit) {
+          found = true;
+          break;
+        }
       }
+      return found;
+    });
+    
+    switch (operator) {
+      case 'AND':
+        return matches.every(match => match);
+      case 'OR':
+        return matches.some(match => match);
+      case 'NOT':
+        return !matches.some(match => match);
+      default:
+        return matches.every(match => match);
+    }
+  }
 
-      const normalizedQuery = Utils.normalizeText(originalQuery);
-      
-      if (statusCallback) statusCallback(true);
-
-      try {
-        const parsedData = await parseQuery(normalizedQuery) || await parseQuery(originalQuery);
-        
-        // 解析時間範圍
-        const timeRange = parseTimeRange(parsedData.time);
-        
-        // 使用 DataManager 的年份索引快速篩選
-        const timeFiltered = DataManager.getDataByYearRange(
-          timeRange.start.getFullYear(), 
-          timeRange.end.getFullYear()
-        ).filter(item => {
-          if (!item._日期) return false;
-          return item._日期 >= timeRange.start && item._日期 <= timeRange.end;
-        });
-
-        // 文本匹配
-        const baseFiltered = timeFiltered.filter(item => {
-          const locationMatch = parsedData.location.some(locationWord => 
-            containsTextNormalized(item, locationWord));
-          const topicMatch = parsedData.topic.some(topicWord => 
-            containsTextNormalized(item, topicWord));
-          return locationMatch && topicMatch;
-        });
-
-        // 計算相關度分數
-        const searchTerms = [...(parsedData.location || []), ...(parsedData.topic || [])];
-        baseFiltered.forEach(item => {
-          calculateRelevanceScore(item, searchTerms, 'smart');
-        });
-
-        // 排序
-        baseFiltered.sort((a, b) => 
-          this.getRelevanceScore(b, searchTerms, 'smart') - 
-          this.getRelevanceScore(a, searchTerms, 'smart')
-        );
-
-        const result = {
-          query: originalQuery,
-          normalizedQuery: normalizedQuery,
-          parsedData: parsedData,
-          results: baseFiltered,
-          timeRange: timeRange
-        };
-
-        if (statusCallback) statusCallback(false);
-        if (resultCallback) resultCallback(result);
-        
-        return result;
-      } catch (error) {
-        if (statusCallback) statusCallback(false);
-        throw error;
-      }
-    },
-
-    // 傳統檢索
-    performTraditionalSearch(originalQuery, selectedFields) {
-      if (!originalQuery || !originalQuery.trim()) {
-        throw new Error('請輸入檢索詞');
-      }
-      
-      if (!DataManager.isDataLoaded()) {
-        throw new Error('資料尚未載入完成，請稍候');
-      }
-
-      const normalizedQuery = Utils.normalizeText(originalQuery);
-
-      try {
-        const searchTerms = parseTraditionalQuery(normalizedQuery);
-        
-        const results = DataManager.getAllData().filter(item => {
-          let result = true;
-          let hasPositiveMatch = false;
-          
-          for (const term of searchTerms) {
-            const termMatch = checkTermMatchNormalized(item, term.value, selectedFields);
-            
-            if (term.operator === 'NOT') {
-              if (termMatch) return false;
-            } else if (term.operator === 'OR') {
-              if (termMatch) hasPositiveMatch = true;
-            } else {
-              if (term.operator === 'AND') {
-                result = result && termMatch;
-              } else {
-                result = termMatch;
-                if (termMatch) hasPositiveMatch = true;
+  // 修正版欄位值提取
+  extractFieldValue(item, field) {
+    switch (field) {
+      case '題名':
+        return item.題名 || '';
+      case '作者':
+        return item.作者 || '';
+      case '標題大分類':
+        return item.標題大分類 || '';
+      case '標題中分類':
+        return item.標題中分類 || '';
+      case '分類':
+        return item.分類 || '';
+      case '分類(一)':
+        return item['分類(一)'] || '';
+      case '分類(二)':
+        return item['分類(二)'] || '';
+      case '分類(三)':
+        return item['分類(三)'] || '';
+      case '刊別':
+        return item.刊別 || '';
+      case '版次':
+        return String(item.版次 || '');
+      case '關鍵詞':
+        if (item.關鍵詞列表 && Array.isArray(item.關鍵詞列表)) {
+          const allKeywords = [];
+          item.關鍵詞列表.forEach(kwGroup => {
+            if (kwGroup) {
+              // 包含所有關鍵詞相關欄位
+              if (kwGroup.大分類) allKeywords.push(kwGroup.大分類);
+              if (kwGroup.中分類) allKeywords.push(kwGroup.中分類);
+              if (kwGroup.小分類) allKeywords.push(kwGroup.小分類);
+              if (kwGroup.關鍵詞 && Array.isArray(kwGroup.關鍵詞)) {
+                allKeywords.push(...kwGroup.關鍵詞.filter(Boolean));
               }
             }
-          }
-          
-          return result && (hasPositiveMatch || searchTerms.length === 0);
-        });
+          });
+          return allKeywords.join(' ');
+        }
+        return '';
+      default:
+        return '';
+    }
+  }
 
-        return {
-          query: originalQuery,
-          normalizedQuery: normalizedQuery,
-          results: results,
-          fields: selectedFields
-        };
-      } catch (error) {
-        throw new Error('檢索語法錯誤，請檢查布林邏輯是否正確');
-      }
-    },
+  // ========================================
+  // 高亮和匹配檢查
+  // ========================================
 
-    // 取得相關度分數
-    getRelevanceScore(item, searchTerms, searchMode) {
-      return calculateRelevanceScore(item, searchTerms, searchMode);
-    },
-
-    // 檢查文本是否包含搜尋詞
-    containsSearchTerms(text, searchData, searchMode) {
-      if (!text) return false;
+  containsSearchTerms(text, searchData, searchMode) {
+    if (!text || !searchData || !searchData.query) {
+      return false;
+    }
+    try {
+      const normalizedText = this.utils ? this.utils.normalizeText(text) : text;
+      const str = normalizedText.toLowerCase();
       
       if (searchMode === 'smart' && searchData.parsedData) {
-        const normalizedText = Utils.normalizeText(text);
-        const str = String(normalizedText).toLowerCase();
         const searchTerms = [
-          ...(searchData.parsedData.location || []), 
+          ...(searchData.parsedData.location || []),
           ...(searchData.parsedData.topic || [])
         ];
         return searchTerms.some(term => {
-          const normalizedTerm = Utils.normalizeText(term || '');
-          return normalizedTerm && str.includes(String(normalizedTerm).toLowerCase());
+          const normalizedTerm = this.utils ? this.utils.normalizeText(term || '') : (term || '');
+          return normalizedTerm && str.includes(normalizedTerm.toLowerCase());
         });
       }
       
-      if (searchMode === 'traditional' && searchData.normalizedQuery) {
-        const normalizedText = Utils.normalizeText(text);
-        const normalizedQuery = Utils.normalizeText(searchData.normalizedQuery);
-        const str = String(normalizedText).toLowerCase();
-        const query = String(normalizedQuery).toLowerCase();
-        return str.includes(query);
+      if (searchMode === 'general' && searchData.searchTerms) {
+        return searchData.searchTerms.some(term => {
+          const normalizedTerm = this.utils ? this.utils.normalizeText(term.value || '') : (term.value || '');
+          return normalizedTerm && str.includes(normalizedTerm.toLowerCase());
+        });
+      }
+      
+      if (searchMode === 'advanced' && searchData.conditions) {
+        return searchData.conditions.some(condition => {
+          const normalizedTerm = this.utils ? this.utils.normalizeText(condition.value || '') : (condition.value || '');
+          return normalizedTerm && str.includes(normalizedTerm.toLowerCase());
+        });
       }
       
       return false;
-    },
+    } catch (error) {
+      console.warn('[containsSearchTerms] 檢查失敗:', error);
+      return false;
+    }
+  }
 
-    // 高亮搜尋詞
-    highlightSearchTerms(text, searchData, searchMode) {
-      if (!text) return Utils.safe(text);
-      
-      let highlightedText = Utils.safe(text);
-      let searchTerms = [];
-      
-      if (searchMode === 'smart' && searchData.parsedData) {
-        searchTerms = [
-          ...(searchData.parsedData.location || []), 
-          ...(searchData.parsedData.topic || [])
-        ].filter(Boolean);
-      } else if (searchMode === 'traditional' && searchData.normalizedQuery) {
-        searchTerms = [searchData.normalizedQuery];
+  highlightSearchTerms(text, searchData, searchMode) {
+    if (!text) return this.utils ? this.utils.safe(text) : String(text || '');
+    
+    let highlightedText = this.utils ? this.utils.safe(text) : String(text);
+    let searchTerms = [];
+    
+    if (searchMode === 'smart' && searchData.parsedData) {
+      searchTerms = [
+        ...(searchData.parsedData.location || []),
+        ...(searchData.parsedData.topic || [])
+      ].filter(Boolean);
+    } else if (searchMode === 'general' && searchData.searchTerms) {
+      searchTerms = searchData.searchTerms.map(term => term.value).filter(Boolean);
+    } else if (searchMode === 'advanced' && searchData.conditions) {
+      searchTerms = searchData.conditions.map(condition => condition.value).filter(Boolean);
+    }
+    
+    if (searchTerms.length === 0) {
+      return highlightedText;
+    }
+    
+    const sortedTerms = searchTerms.sort((a, b) => String(b).length - String(a).length);
+    
+    sortedTerms.forEach(term => {
+      if (term) {
+        const normalizedTerm = this.utils ? this.utils.normalizeText(term) : term;
+        const escapedTerm = this.utils ? this.utils.escapeRegExp(normalizedTerm) : 
+          String(normalizedTerm).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        
+        try {
+          const regex = new RegExp(`(${escapedTerm})`, 'gi');
+          highlightedText = highlightedText.replace(regex, 
+            '<mark class="bg-yellow-200 text-yellow-900 px-1 rounded">$1</mark>');
+        } catch (error) {
+          console.warn('正則表達式錯誤:', error);
+        }
       }
-      
-      if (searchTerms.length === 0) {
-        return highlightedText;
+    });
+    
+    return highlightedText;
+  }
+
+  // ========================================
+  // 輔助方法
+  // ========================================
+
+  containsTextNormalized(item, searchTerm) {
+    const normalizedTerm = this.utils ? this.utils.normalizeText(searchTerm) : searchTerm;
+    const searchStr = normalizedTerm.toLowerCase();
+    
+    const fields = [
+      { value: item.題名, weight: 3 },
+      { value: item.標題大分類, weight: 2 },
+      { value: item.標題中分類, weight: 2 },
+      { value: item.作者, weight: 1.5 },
+      { value: item.分類, weight: 1.5 },
+      { value: item['分類(一)'], weight: 1.5 },
+      { value: item['分類(二)'], weight: 1.5 },
+      { value: item['分類(三)'], weight: 1.5 },
+      { value: item.刊別, weight: 1 }
+    ];
+    
+    for (const field of fields) {
+      if (field.value) {
+        const normalizedValue = this.utils ? this.utils.normalizeText(field.value) : field.value;
+        if (normalizedValue.toLowerCase().includes(searchStr)) {
+          return true;
+        }
       }
+    }
+    
+    if (item.關鍵詞列表) {
+      return item.關鍵詞列表.some(kwGroup => {
+        const parts = [
+          kwGroup.大分類,
+          kwGroup.中分類,
+          kwGroup.小分類,
+          ...(kwGroup.關鍵詞 || [])
+        ];
+        
+        return parts.some(part => {
+          if (!part) return false;
+          const normalizedPart = this.utils ? this.utils.normalizeText(part) : part;
+          return normalizedPart.toLowerCase().includes(searchStr);
+        });
+      });
+    }
+    
+    return false;
+  }
+
+  calculateSimilarity(text1, text2) {
+    const shorter = text1.length < text2.length ? text1 : text2;
+    const longer = text1.length < text2.length ? text2 : text1;
+    
+    if (longer.includes(shorter)) return 0.8;
+    
+    const commonChars = [...shorter].filter(char => longer.includes(char)).length;
+    return commonChars / longer.length;
+  }
+
+  extractTopicsFromQuery(query) {
+    const topicKeywords = [
+      '政治', '經濟', '社會', '文化', '教育', '醫療', '交通', '產業',
+      '建設', '法律', '軍事', '宗教', '農業', '商業', '工業', '港口',
+      '鐵路', '學校', '醫院', '工廠', '市場', '銀行', '警察', '法院'
+    ];
+    
+    const topics = topicKeywords.filter(topic => query.includes(topic));
+    
+    if (topics.length === 0) {
+      const words = query.replace(/[，。！？；：「」『』（）]/g, ' ')
+                         .split(/\s+/)
+                         .filter(word => word.length > 1);
+      topics.push(...words.slice(0, 3));
+    }
+    
+    return topics.length > 0 ? topics : ['資料'];
+  }
+
+  parseTimeRange(timeStr) {
+    const parts = timeStr.split('-');
+    const startYear = parseInt(parts[0]);
+    const endYear = parseInt(parts[1]);
+    
+    return {
+      start: new Date(startYear, 0, 1),
+      end: new Date(endYear, 11, 31)
+    };
+  }
+
+  // ========================================
+  // 相關度計算
+  // ========================================
+
+  calculateSmartRelevanceScores(results, searchTerms) {
+    results.forEach(item => {
+      let score = 0;
       
-      const sortedTerms = searchTerms.sort((a, b) => String(b).length - String(a).length);
-      
-      sortedTerms.forEach(term => {
-        if (term) {
-          const normalizedTerm = Utils.normalizeText(term);
-          if (highlightedText.includes(String(normalizedTerm))) {
-            const regex = new RegExp(`(${Utils.escapeRegExp(String(normalizedTerm))})`, 'gi');
-            highlightedText = highlightedText.replace(regex, 
-              '<mark class="bg-yellow-200 text-yellow-900 px-1 rounded">$1</mark>');
+      searchTerms.forEach(term => {
+        const normalizedTerm = this.utils ? this.utils.normalizeText(term) : term;
+        const termStr = normalizedTerm.toLowerCase();
+        
+        if (item.題名) {
+          const normalizedTitle = this.utils ? this.utils.normalizeText(item.題名) : item.題名;
+          if (normalizedTitle.toLowerCase().includes(termStr)) {
+            score += 100;
+            if (normalizedTitle.toLowerCase() === termStr) {
+              score += 100;
+            }
           }
-          
-          if (String(term) !== String(normalizedTerm) && highlightedText.includes(String(term))) {
-            const regex = new RegExp(`(${Utils.escapeRegExp(String(term))})`, 'gi');
-            highlightedText = highlightedText.replace(regex, 
-              '<mark class="bg-yellow-200 text-yellow-900 px-1 rounded">$1</mark>');
+        }
+        
+        if (item.作者) {
+          const normalizedAuthor = this.utils ? this.utils.normalizeText(item.作者) : item.作者;
+          if (normalizedAuthor.toLowerCase().includes(termStr)) {
+            score += 75;
           }
+        }
+        
+        [item.標題大分類, item.標題中分類, item.分類, item['分類(一)'], item['分類(二)'], item['分類(三)'], item.刊別].forEach(category => {
+          if (category) {
+            const normalizedCategory = this.utils ? this.utils.normalizeText(category) : category;
+            if (normalizedCategory.toLowerCase().includes(termStr)) {
+              score += 50;
+            }
+          }
+        });
+        
+        if (item.關鍵詞列表) {
+          item.關鍵詞列表.forEach(kwGroup => {
+            const parts = [
+              kwGroup.大分類,
+              kwGroup.中分類,
+              kwGroup.小分類,
+              ...(kwGroup.關鍵詞 || [])
+            ];
+            
+            parts.forEach(part => {
+              if (part) {
+                const normalizedPart = this.utils ? this.utils.normalizeText(part) : part;
+                if (normalizedPart.toLowerCase().includes(termStr)) {
+                  score += 20;
+                }
+              }
+            });
+          });
         }
       });
       
-      return highlightedText;
-    },
+      item._relevanceScore = score;
+    });
+  }
 
-    // 清理緩存
-    clearCache() {
-      const maxCacheSize = 1000;
+  calculateGeneralRelevanceScores(results, searchTerms, fieldType) {
+    const fieldConfig = this.SEARCH_FIELDS[fieldType] || this.SEARCH_FIELDS['all'];
+    
+    results.forEach(item => {
+      let score = 0;
       
-      if (searchCache.results.size > maxCacheSize) {
-        const keys = Array.from(searchCache.results.keys()).slice(0, maxCacheSize / 2);
-        keys.forEach(key => searchCache.results.delete(key));
-      }
+      searchTerms.forEach(term => {
+        const normalizedTerm = this.utils ? 
+          this.utils.normalizeText(term.value).toLowerCase() : 
+          term.value.toLowerCase();
+        
+        fieldConfig.fields.forEach(field => {
+          const fieldValue = this.extractFieldValue(item, field);
+          const normalizedValue = this.utils ? 
+            this.utils.normalizeText(fieldValue).toLowerCase() : 
+            fieldValue.toLowerCase();
+          
+          if (normalizedValue.includes(normalizedTerm)) {
+            let fieldWeight = 1;
+            switch (field) {
+              case '題名': fieldWeight = 3; break;
+              case '作者': fieldWeight = 2; break;
+              case '標題大分類': case '標題中分類': case '分類': case '分類(一)': case '分類(二)': case '分類(三)': fieldWeight = 1.5; break;
+              default: fieldWeight = 1;
+            }
+            
+            score += fieldConfig.weight * fieldWeight;
+            
+            if (normalizedValue === normalizedTerm) {
+              score += fieldConfig.weight * fieldWeight * 2;
+            }
+            
+            if (normalizedValue.includes(' ' + normalizedTerm + ' ') || 
+                normalizedValue.startsWith(normalizedTerm + ' ') ||
+                normalizedValue.endsWith(' ' + normalizedTerm)) {
+              score += fieldConfig.weight * fieldWeight * 0.5;
+            }
+          }
+        });
+      });
       
-      if (searchCache.relevanceScores.size > maxCacheSize) {
-        const keys = Array.from(searchCache.relevanceScores.keys()).slice(0, maxCacheSize / 2);
-        keys.forEach(key => searchCache.relevanceScores.delete(key));
-      }
+      item._relevanceScore = score;
+    });
+  }
+
+  calculateAdvancedRelevanceScores(results, conditions) {
+    results.forEach(item => {
+      let score = 0;
+      
+      conditions.forEach(condition => {
+        const searchTerms = this.parseGeneralQuery(condition.value, 'AND');
+        score += this.calculateGeneralRelevanceScore(item, searchTerms, condition.field);
+      });
+      
+      item._relevanceScore = score;
+    });
+  }
+
+  calculateGeneralRelevanceScore(item, searchTerms, fieldType) {
+    if (!searchTerms?.length) return 0;
+    
+    const fieldConfig = this.SEARCH_FIELDS[fieldType] || this.SEARCH_FIELDS['all'];
+    let score = 0;
+    
+    searchTerms.forEach(term => {
+      const normalizedTerm = this.utils ? 
+        this.utils.normalizeText(term.value).toLowerCase() : 
+        term.value.toLowerCase();
+      
+      fieldConfig.fields.forEach(field => {
+        const fieldValue = this.extractFieldValue(item, field);
+        const normalizedValue = this.utils ? 
+          this.utils.normalizeText(fieldValue).toLowerCase() : 
+          fieldValue.toLowerCase();
+        
+        if (normalizedValue.includes(normalizedTerm)) {
+          let fieldWeight = 1;
+          switch (field) {
+            case '題名': fieldWeight = 3; break;
+            case '作者': fieldWeight = 2; break;
+            case '標題大分類': case '標題中分類': case '分類': fieldWeight = 1.5; break;
+            default: fieldWeight = 1;
+          }
+          
+          score += fieldConfig.weight * fieldWeight;
+          
+          if (normalizedValue === normalizedTerm) {
+            score += fieldConfig.weight * fieldWeight * 2;
+          }
+        }
+      });
+    });
+    
+    return score;
+  }
+
+  // ========================================
+  // 快取管理
+  // ========================================
+
+  setCache(key, value) {
+    if (this.cache.size >= this.maxCacheSize) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
     }
-  };
+    this.cache.set(key, value);
+  }
 
-  // 註冊到應用程式模組系統
-  global.TaiwanNewsApp.SearchManager = SearchManager;
+  clearCache() {
+    this.cache.clear();
+  }
 
-})(this);
+  getCacheStats() {
+    return {
+      cacheSize: this.cache.size,
+      maxCacheSize: this.maxCacheSize
+    };
+  }
+}
+
+// 導出單例
+export const searchManager = new SearchManager();
