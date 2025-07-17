@@ -1,245 +1,111 @@
-// state-manager.js - 狀態管理模組
+// state-manager.js - 修正版狀態管理模組
 
-(function(global) {
-  'use strict';
+// ========================================
+// 狀態管理類別
+// ========================================
 
-  // ========================================
-  // 私有狀態變數
-  // ========================================
-  
-  let appState = {
-    // 資料狀態
-    filtered: [],
-    filters: {
-      // 日期篩選
-      startDate: null,
-      endDate: null,
-      dateFilterType: 'western',
-      
-      // 日治年號篩選
-      era: null,
-      eraStartYear: null,
-      eraEndYear: null,
-      
-      // 樹狀篩選狀態
-      title: {
-        major: [],     // AND模式下應為單選，OR模式下可多選
-        mid: []        // 基於major的範圍
+class StateManager {
+  constructor() {
+    // 狀態監聽器
+    this.listeners = new Set();
+    
+    // 應用狀態
+    this.state = {
+      // 篩選條件
+      filters: {
+        startYear: 1895,
+        endYear: 1945,
+        startDate: null,
+        endDate: null,
+        dateFilterType: 'western', // 'western' 或 'japanese'
+        era: null, // 明治、大正、昭和
+        eraStartYear: null,
+        eraEndYear: null,
+        title: { type: null, value: null, major: null },
+        keyword: { userSelected: { selections: [] } },
+        category: { level: null, value: null, parent: null },
+        publication: null,
+        edition: null
       },
-      keyword: {
-        major: [],     // 可多選
-        mid: [],       // 基於major的範圍
-        minor: []      // 基於major和mid的範圍
-      }
-    },
-    
-    // 篩選模式：'and' (交集) | 'or' (聯集)
-    filterMode: 'and',
-    
-    // 根基狀態追蹤
-    rootDimension: null,
-    
-    sortOrder: 'relevance',
-    currentPage: 1,
-    searchMode: 'smart',
-    currentSearchData: null,
-    traditionalSearchFields: ['all'],
-    
-    // 初始化狀態
-    isInitialized: false,
-    isDataLoaded: false
-  };
-
-  // 狀態變更監聽器
-  const stateListeners = new Set();
-
-  // ========================================
-  // 私有函數
-  // ========================================
-  
-  function notifyStateChange(changes) {
-    stateListeners.forEach(listener => {
-      try {
-        listener(changes, appState);
-      } catch (error) {
-        console.error('狀態監聽器錯誤:', error);
-      }
-    });
-  }
-
-  function deepClone(obj) {
-    if (obj === null || typeof obj !== 'object') return obj;
-    if (obj instanceof Date) return new Date(obj);
-    if (Array.isArray(obj)) return obj.map(deepClone);
-    
-    const cloned = {};
-    for (const key in obj) {
-      if (obj.hasOwnProperty(key)) {
-        cloned[key] = deepClone(obj[key]);
-      }
-    }
-    return cloned;
-  }
-
-  // ========================================
-  // 新增：完整篩選邏輯實現
-  // ========================================
-
-  // 取得基礎資料集（檢索結果或全部資料）
-  function getBaseDataset() {
-    const DataManager = global.TaiwanNewsApp.DataManager;
-    const currentSearchData = appState.currentSearchData;
-    
-    return currentSearchData ? 
-      currentSearchData.results : 
-      (DataManager ? DataManager.getAllData() : []);
-  }
-
-  // 套用日期篩選
-  function applyDateFilters(data, filters) {
-    const Utils = global.TaiwanNewsApp.Utils;
-    
-    return data.filter(item => {
-      // 西元年日期篩選
-      if (filters.startDate || filters.endDate) {
-        if (!item._日期) return false;
-        if (filters.startDate && item._日期 < filters.startDate) return false;
-        if (filters.endDate && item._日期 > filters.endDate) return false;
-      }
-
-      // 日治年號篩選
-      if (filters.dateFilterType === 'japanese' && filters.era) {
-        if (!item._年份) return false;
-        
-        let startYear = null;
-        let endYear = null;
-        
-        if (filters.eraStartYear) {
-          startYear = Utils ? Utils.convertEraToWestern(filters.era, filters.eraStartYear) : null;
-        }
-        if (filters.eraEndYear) {
-          endYear = Utils ? Utils.convertEraToWestern(filters.era, filters.eraEndYear) : null;
-        }
-        
-        if (startYear && item._年份 < startYear) return false;
-        if (endYear && item._年份 > endYear) return false;
-      }
       
-      return true;
-    });
-  }
-
-  // AND模式篩選邏輯
-  function applyAndModeFilters(data, filters) {
-    return data.filter(item => {
-      // 標題分類篩選（AND邏輯）
-      let titleMatch = true;
-      if (filters.title.major.length > 0) {
-        // AND模式下標題大分類應為單選，但程式上仍支援多選的邏輯
-        titleMatch = filters.title.major.includes(item.標題大分類);
-      }
-      if (titleMatch && filters.title.mid.length > 0) {
-        titleMatch = filters.title.mid.includes(item.標題中分類);
-      }
-
-      // 關鍵詞分類篩選（AND邏輯）
-      let keywordMatch = true;
-      const hasKeywordFilters = filters.keyword.major.length > 0 || 
-                               filters.keyword.mid.length > 0 || 
-                               filters.keyword.minor.length > 0;
+      // 檢索模式和資料
+      searchMode: 'smart',
+      currentSearchData: null,
       
-      if (hasKeywordFilters) {
-        keywordMatch = item.關鍵詞列表.some(kw => {
-          let kwMatch = true;
-          
-          // 必須同時符合所有已選的關鍵詞層級
-          if (filters.keyword.major.length > 0) {
-            kwMatch = kwMatch && filters.keyword.major.includes(kw.大分類);
-          }
-          if (filters.keyword.mid.length > 0) {
-            kwMatch = kwMatch && filters.keyword.mid.includes(kw.中分類);
-          }
-          if (filters.keyword.minor.length > 0) {
-            kwMatch = kwMatch && filters.keyword.minor.includes(kw.小分類);
-          }
-          
-          return kwMatch;
-        });
-      }
+      // 顯示模式
+      viewMode: 'simple',
+      sortOrder: 'relevance',
+      currentPage: 1,
       
-      // 標題與關鍵詞之間也是AND邏輯
-      return titleMatch && keywordMatch;
-    });
-  }
-
-  // OR模式篩選邏輯
-  function applyOrModeFilters(data, filters) {
-    const hasTitleFilters = filters.title.major.length > 0 || filters.title.mid.length > 0;
-    const hasKeywordFilters = filters.keyword.major.length > 0 || 
-                             filters.keyword.mid.length > 0 || 
-                             filters.keyword.minor.length > 0;
+      // 系統狀態
+      isInitialized: false,
+      isDataLoaded: false
+    };
     
-    // 如果沒有任何篩選條件，返回全部
-    if (!hasTitleFilters && !hasKeywordFilters) {
-      return data;
+    // 依賴
+    this.dataManager = null;
+    this.utils = null;
+    
+    // 快取
+    this.filteredDataCache = new Map();
+    this.availableDataCache = new Map();
+    
+    // 防抖通知
+    this.notifyTimer = null;
+  }
+
+  // 初始化
+  init(dataManager, utils) {
+    this.dataManager = dataManager;
+    this.utils = utils;
+    this.state.isInitialized = true;
+    this.notifyStateChange({ type: 'init' });
+  }
+
+  // ========================================
+  // 基本狀態操作
+  // ========================================
+
+  getState() {
+    return structuredClone(this.state);
+  }
+
+  get(path) {
+    const keys = path.split('.');
+    let current = this.state;
+    
+    for (const key of keys) {
+      if (current === null || current === undefined) return undefined;
+      current = current[key];
     }
     
-    return data.filter(item => {
-      let matches = false;
-      
-      // 標題分類匹配（OR邏輯）
-      if (hasTitleFilters) {
-        let titleMatch = false;
-        if (filters.title.major.length > 0) {
-          titleMatch = titleMatch || filters.title.major.includes(item.標題大分類);
-        }
-        if (filters.title.mid.length > 0) {
-          titleMatch = titleMatch || filters.title.mid.includes(item.標題中分類);
-        }
-        matches = matches || titleMatch;
-      }
-      
-      // 關鍵詞分類匹配（OR邏輯）
-      if (hasKeywordFilters) {
-        const keywordMatch = item.關鍵詞列表.some(kw => {
-          return (filters.keyword.major.length > 0 && filters.keyword.major.includes(kw.大分類)) ||
-                 (filters.keyword.mid.length > 0 && filters.keyword.mid.includes(kw.中分類)) ||
-                 (filters.keyword.minor.length > 0 && filters.keyword.minor.includes(kw.小分類));
-        });
-        matches = matches || keywordMatch;
-      }
-      
-      return matches;
-    });
+    return current;
   }
 
-  // ========================================
-  // 公開的 API
-  // ========================================
-  const StateManager = {
-    // 取得完整狀態（只讀）
-    getState() {
-      return deepClone(appState);
-    },
-
-    // 取得特定狀態值
-    get(path) {
-      const keys = path.split('.');
-      let current = appState;
-      
-      for (const key of keys) {
-        if (current === null || current === undefined) return undefined;
-        current = current[key];
+  set(path, value) {
+    const keys = path.split('.');
+    const lastKey = keys.pop();
+    let current = this.state;
+    
+    for (const key of keys) {
+      if (!(key in current) || typeof current[key] !== 'object') {
+        current[key] = {};
       }
-      
-      return deepClone(current);
-    },
+      current = current[key];
+    }
+    
+    current[lastKey] = value;
+    this.clearCaches();
+    this.notifyStateChange({ [path]: value });
+  }
 
-    // 設定狀態值
-    set(path, value) {
+  update(updates) {
+    const changes = {};
+    
+    Object.entries(updates).forEach(([path, value]) => {
       const keys = path.split('.');
       const lastKey = keys.pop();
-      let current = appState;
+      let current = this.state;
       
       for (const key of keys) {
         if (!(key in current) || typeof current[key] !== 'object') {
@@ -248,306 +114,621 @@
         current = current[key];
       }
       
-      const oldValue = current[lastKey];
-      current[lastKey] = deepClone(value);
-      
-      notifyStateChange({
-        path,
-        oldValue: deepClone(oldValue),
-        newValue: deepClone(value)
-      });
-    },
+      current[lastKey] = value;
+      changes[path] = value;
+    });
+    
+    this.clearCaches();
+    this.notifyStateChange(changes);
+  }
 
-    // 更新多個狀態值
-    update(updates) {
-      const changes = [];
+  // ========================================
+  // 篩選邏輯 - 增強版
+  // ========================================
+
+  getFilteredDataset() {
+    const cacheKey = this.generateCacheKey();
+    
+    if (this.filteredDataCache.has(cacheKey)) {
+      return this.filteredDataCache.get(cacheKey);
+    }
+    
+    const result = this.computeFilteredData();
+    this.filteredDataCache.set(cacheKey, result);
+    
+    // 限制快取大小
+    if (this.filteredDataCache.size > 50) {
+      const firstKey = this.filteredDataCache.keys().next().value;
+      this.filteredDataCache.delete(firstKey);
+    }
+    
+    return result;
+  }
+
+  computeFilteredData() {
+    let data = this.getBaseDataset();
+    
+    // 依序套用篩選
+    data = this.applyYearFilters(data);
+    data = this.applyDateFilters(data);
+    data = this.applyTitleFilters(data);
+    data = this.applyKeywordFilters(data);
+    data = this.applyCategoryFilters(data);
+    data = this.applyPublicationFilters(data);
+    data = this.applyEditionFilters(data);
+    
+    return data;
+  }
+
+  getBaseDataset() {
+    const currentSearchData = this.state.currentSearchData;
+    if (currentSearchData?.results) {
+      return currentSearchData.results;
+    }
+    return this.dataManager?.getAllData() || [];
+  }
+
+  applyYearFilters(data) {
+    const { startYear, endYear } = this.state.filters;
+    if (!startYear || !endYear) return data;
+    
+    return data.filter(item => {
+      return item._年份 && item._年份 >= startYear && item._年份 <= endYear;
+    });
+  }
+
+  // 新增：日期篩選邏輯
+  applyDateFilters(data) {
+    const filters = this.state.filters;
+    
+    return data.filter(item => {
+      // 西元年日期篩選
+      if (filters.startDate || filters.endDate) {
+        if (!item._日期) return false;
+        if (filters.startDate && item._日期 < filters.startDate) return false;
+        if (filters.endDate && item._日期 > filters.endDate) return false;
+      }
       
-      Object.entries(updates).forEach(([path, value]) => {
-        const keys = path.split('.');
-        const lastKey = keys.pop();
-        let current = appState;
-        
-        for (const key of keys) {
-          if (!(key in current) || typeof current[key] !== 'object') {
-            current[key] = {};
-          }
-          current = current[key];
+      // 日治年號篩選
+      if (filters.dateFilterType === 'japanese' && filters.era) {
+        if (!item._年份) return false;
+        let startYear = null;
+        let endYear = null;
+        if (filters.eraStartYear && this.utils) {
+          startYear = this.utils.convertEraToWestern(filters.era, filters.eraStartYear);
         }
-        
-        const oldValue = current[lastKey];
-        current[lastKey] = deepClone(value);
-        
-        changes.push({
-          path,
-          oldValue: deepClone(oldValue),
-          newValue: deepClone(value)
+        if (filters.eraEndYear && this.utils) {
+          endYear = this.utils.convertEraToWestern(filters.era, filters.eraEndYear);
+        }
+        if (startYear && item._年份 < startYear) return false;
+        if (endYear && item._年份 > endYear) return false;
+      }
+      
+      return true;
+    });
+  }
+
+  applyTitleFilters(data) {
+    const titleFilter = this.state.filters.title;
+    if (!titleFilter?.type || !titleFilter?.value) return data;
+    
+    return data.filter(item => {
+      if (titleFilter.type === 'major') {
+        return item.標題大分類 === titleFilter.value;
+      } else if (titleFilter.type === 'mid') {
+        return item.標題中分類 === titleFilter.value && 
+               item.標題大分類 === titleFilter.major;
+      }
+      return true;
+    });
+  }
+
+  applyKeywordFilters(data) {
+    const selections = this.state.filters.keyword?.userSelected?.selections;
+    if (!selections?.length) return data;
+    
+    return data.filter(item => {
+      if (!item.關鍵詞列表?.length) return false;
+      
+      return selections.every(selection => {
+        return item.關鍵詞列表.some(kw => {
+          if (!kw || kw.大分類 !== selection.major) return false;
+          
+          if (selection.type === 'mid') {
+            return kw.中分類 === selection.value;
+          } else if (selection.type === 'minor') {
+            return kw.中分類 === selection.mid && kw.小分類 === selection.value;
+          }
+          return false;
         });
       });
-      
-      notifyStateChange(changes);
-    },
+    });
+  }
 
-    // 重設篩選條件
-    resetFilters() {
-      this.update({
-        'filters.startDate': null,
-        'filters.endDate': null,
-        'filters.dateFilterType': 'western',
-        'filters.era': null,
-        'filters.eraStartYear': null,
-        'filters.eraEndYear': null,
-        'filters.title': { major: [], mid: [] },
-        'filters.keyword': { major: [], mid: [], minor: [] },
-        'rootDimension': null,
-        'currentPage': 1,
-        'filterMode': 'and'
-      });
-    },
-
-    // 重設搜尋狀態
-    resetSearch() {
-      this.update({
-        'currentSearchData': null,
-        'searchMode': 'smart',
-        'traditionalSearchFields': ['all']
-      });
-    },
-
-    // 重設為初始狀態
-    reset() {
-      const currentData = this.get('filtered');
-      const isDataLoaded = this.get('isDataLoaded');
-      
-      appState = {
-        filtered: currentData,
-        filters: {
-          startDate: null,
-          endDate: null,
-          dateFilterType: 'western',
-          era: null,
-          eraStartYear: null,
-          eraEndYear: null,
-          title: { major: [], mid: [] },
-          keyword: { major: [], mid: [], minor: [] }
-        },
-        filterMode: 'and',
-        rootDimension: null,
-        sortOrder: 'relevance',
-        currentPage: 1,
-        searchMode: 'smart',
-        currentSearchData: null,
-        traditionalSearchFields: ['all'],
-        isInitialized: true,
-        isDataLoaded: isDataLoaded
-      };
-      
-      notifyStateChange({ type: 'reset', state: deepClone(appState) });
-    },
-
-    // 添加狀態監聽器
-    addListener(callback) {
-      stateListeners.add(callback);
-      return () => {
-        stateListeners.delete(callback);
-      };
-    },
-
-    removeListener(callback) {
-      stateListeners.delete(callback);
-    },
-
-    clearListeners() {
-      stateListeners.clear();
-    },
-
-    // 檢查初始化狀態
-    isInitialized() {
-      return appState.isInitialized;
-    },
-
-    isDataLoaded() {
-      return appState.isDataLoaded;
-    },
-
-    setInitialized(value = true) {
-      this.set('isInitialized', value);
-    },
-
-    setDataLoaded(value = true) {
-      this.set('isDataLoaded', value);
-    },
-
-    // 切換篩選模式
-    toggleFilterMode() {
-      const currentMode = this.get('filterMode');
-      const newMode = currentMode === 'and' ? 'or' : 'and';
-      this.set('filterMode', newMode);
-      return newMode;
-    },
-
-    // 取得當前資料集（檢索結果）
-    getCurrentDataset() {
-      return getBaseDataset();
-    },
-
-    // ✅ 核心方法：取得篩選後的資料集
-    getFilteredDataset() {
-      const baseData = getBaseDataset();
-      const filters = this.get('filters');
-      const filterMode = this.get('filterMode');
-
-      // 1. 套用日期篩選（兩種模式都適用）
-      let filteredData = applyDateFilters(baseData, filters);
-
-      // 2. 根據篩選模式套用分類篩選
-      if (filterMode === 'and') {
-        filteredData = applyAndModeFilters(filteredData, filters);
-      } else {
-        filteredData = applyOrModeFilters(filteredData, filters);
+  applyCategoryFilters(data) {
+    const categoryFilter = this.state.filters.category;
+    if (!categoryFilter?.level || !categoryFilter?.value) return data;
+    
+    return data.filter(item => {
+      if (categoryFilter.level === 'category') {
+        return item['分類'] === categoryFilter.value;
       }
+      return true;
+    });
+  }
 
-      return filteredData;
-    },
+  applyPublicationFilters(data) {
+    const publication = this.state.filters.publication;
+    if (!publication) return data;
+    
+    return data.filter(item => item.刊別 === publication);
+  }
 
-    // ✅ 核心方法：計算可用選項範圍（漸進式篩選）
-    calculateAvailableOptions(dimension, level) {
-      const baseData = getBaseDataset();
-      const filters = this.get('filters');
-      const filterMode = this.get('filterMode');
-      
-      // 1. 先套用日期篩選
-      let availableData = applyDateFilters(baseData, filters);
-      
-      if (filterMode === 'or') {
-        // OR模式：返回完整可用資料
-        return availableData;
-      }
-      
-      // AND模式：漸進式篩選
-      if (dimension === 'title') {
-        // 基於關鍵詞篩選來限制標題選項
-        const keywordFilters = filters.keyword;
-        if (keywordFilters.major.length > 0 || keywordFilters.mid.length > 0 || keywordFilters.minor.length > 0) {
-          availableData = availableData.filter(item => {
-            return item.關鍵詞列表.some(kw => {
-              const majorMatch = keywordFilters.major.length === 0 || keywordFilters.major.includes(kw.大分類);
-              const midMatch = keywordFilters.mid.length === 0 || keywordFilters.mid.includes(kw.中分類);
-              const minorMatch = keywordFilters.minor.length === 0 || keywordFilters.minor.includes(kw.小分類);
-              return majorMatch && midMatch && minorMatch;
-            });
-          });
-        }
-        
-        // 如果是標題中分類，還要基於已選的標題大分類
-        if (level === 'mid' && filters.title.major.length > 0) {
-          availableData = availableData.filter(item => 
-            filters.title.major.includes(item.標題大分類)
-          );
-        }
-        
-      } else if (dimension === 'keyword') {
-        // 基於標題篩選來限制關鍵詞選項
-        const titleFilters = filters.title;
-        if (titleFilters.major.length > 0 || titleFilters.mid.length > 0) {
-          availableData = availableData.filter(item => {
-            const majorMatch = titleFilters.major.length === 0 || titleFilters.major.includes(item.標題大分類);
-            const midMatch = titleFilters.mid.length === 0 || titleFilters.mid.includes(item.標題中分類);
-            return majorMatch && midMatch;
-          });
-        }
-        
-        // 基於已選的關鍵詞進行進一步限制
-        const kwFilters = filters.keyword;
-        if (level === 'mid' && kwFilters.major.length > 0) {
-          // 關鍵詞中分類：基於已選大分類
-          const relevantItems = [];
-          availableData.forEach(item => {
-            item.關鍵詞列表.forEach(kw => {
-              if (kwFilters.major.includes(kw.大分類)) {
-                relevantItems.push(item);
-              }
-            });
-          });
-          availableData = [...new Set(relevantItems)];
-        } else if (level === 'minor' && (kwFilters.major.length > 0 || kwFilters.mid.length > 0)) {
-          // 關鍵詞小分類：基於已選大分類和中分類
-          const relevantItems = [];
-          availableData.forEach(item => {
-            item.關鍵詞列表.forEach(kw => {
-              const majorMatch = kwFilters.major.length === 0 || kwFilters.major.includes(kw.大分類);
-              const midMatch = kwFilters.mid.length === 0 || kwFilters.mid.includes(kw.中分類);
-              if (majorMatch && midMatch) {
-                relevantItems.push(item);
-              }
-            });
-          });
-          availableData = [...new Set(relevantItems)];
-        }
-      }
-      
-      return availableData;
-    },
+  applyEditionFilters(data) {
+    const edition = this.state.filters.edition;
+    if (!edition) return data;
+    
+    return data.filter(item => String(item.版次) === String(edition));
+  }
 
-    // 更新根基狀態
-    updateRootDimension(dimension) {
-      const currentRoot = this.get('rootDimension');
-      if (!currentRoot) {
-        this.set('rootDimension', dimension);
-      }
-    },
+  // ========================================
+  // 協同篩選方法 - 增強版
+  // ========================================
 
-    // ✅ 取得篩選統計（不包含檢索）
-    getFilterStatistics() {
-      const filteredData = this.getFilteredDataset();
-      const filters = this.get('filters');
-      
-      const titleFilterCount = (filters.title.major.length || 0) + (filters.title.mid.length || 0);
-      const keywordFilterCount = (filters.keyword.major.length || 0) + 
-                                 (filters.keyword.mid.length || 0) + 
-                                 (filters.keyword.minor.length || 0);
-      
-      return {
-        totalCount: filteredData.length,
-        titleFilterCount,
-        keywordFilterCount,
-        hasActiveFilters: titleFilterCount > 0 || keywordFilterCount > 0,
-        hasDateFilter: !!(filters.startDate || filters.endDate || 
-                         (filters.dateFilterType === 'japanese' && filters.era)),
-        filterMode: this.get('filterMode')
-      };
-    },
-
-    // ✅ 檢查是否有任何篩選條件（不包含檢索）
-    hasAnyFilters() {
-      const filters = this.get('filters');
-      const stats = this.getFilterStatistics();
-      
-      return stats.hasActiveFilters || stats.hasDateFilter;
-    },
-
-    // 取得篩選模式說明文字
-    getFilterModeDescription() {
-      const mode = this.get('filterMode');
-      return mode === 'and' ? 
-        '交集模式：選擇會互相影響，逐步縮小範圍' : 
-        '聯集模式：選擇獨立進行，擴大查詢範圍';
-    },
-
-    // 取得除錯資訊
-    getDebugInfo() {
-      return {
-        stateSize: JSON.stringify(appState).length,
-        listenersCount: stateListeners.size,
-        filterMode: appState.filterMode,
-        rootDimension: appState.rootDimension,
-        hasFilters: this.hasAnyFilters(),
-        filterStats: this.getFilterStatistics(),
-        currentState: deepClone(appState)
-      };
+  getAvailableData(excludeFilter) {
+    const cacheKey = `available-${excludeFilter || 'none'}`;
+    
+    if (this.availableDataCache.has(cacheKey)) {
+      return this.availableDataCache.get(cacheKey);
     }
-  };
+    
+    const baseData = this.getBaseDataset();
+    const filters = structuredClone(this.state.filters);
+    
+    // 排除指定的篩選條件
+    if (excludeFilter) {
+      switch (excludeFilter) {
+        case 'title':
+          filters.title = { type: null, value: null, major: null };
+          break;
+        case 'keyword':
+          filters.keyword = { userSelected: { selections: [] } };
+          break;
+        case 'category':
+          filters.category = { level: null, value: null, parent: null };
+          break;
+        case 'publication':
+          filters.publication = null;
+          break;
+        case 'edition':
+          filters.edition = null;
+          break;
+        case 'year':
+          filters.startYear = 1895;
+          filters.endYear = 1945;
+          break;
+        case 'date':
+          filters.startDate = null;
+          filters.endDate = null;
+          filters.era = null;
+          filters.eraStartYear = null;
+          filters.eraEndYear = null;
+          break;
+      }
+    }
+    
+    // 套用篩選
+    let result = [...baseData];
+    
+    if (filters.startYear && filters.endYear) {
+      result = result.filter(item => 
+        item._年份 && item._年份 >= filters.startYear && item._年份 <= filters.endYear
+      );
+    }
+    
+    // 日期篩選
+    if (filters.startDate || filters.endDate) {
+      result = result.filter(item => {
+        if (!item._日期) return false;
+        if (filters.startDate && item._日期 < filters.startDate) return false;
+        if (filters.endDate && item._日期 > filters.endDate) return false;
+        return true;
+      });
+    }
+    
+    // 日治年號篩選
+    if (filters.dateFilterType === 'japanese' && filters.era) {
+      result = result.filter(item => {
+        if (!item._年份) return false;
+        let startYear = null;
+        let endYear = null;
+        if (filters.eraStartYear && this.utils) {
+          startYear = this.utils.convertEraToWestern(filters.era, filters.eraStartYear);
+        }
+        if (filters.eraEndYear && this.utils) {
+          endYear = this.utils.convertEraToWestern(filters.era, filters.eraEndYear);
+        }
+        if (startYear && item._年份 < startYear) return false;
+        if (endYear && item._年份 > endYear) return false;
+        return true;
+      });
+    }
+    
+    if (filters.title?.type && filters.title?.value) {
+      result = result.filter(item => {
+        if (filters.title.type === 'major') {
+          return item.標題大分類 === filters.title.value;
+        } else if (filters.title.type === 'mid') {
+          return item.標題中分類 === filters.title.value;
+        }
+        return true;
+      });
+    }
+    
+    if (filters.keyword?.userSelected?.selections?.length) {
+      result = result.filter(item => {
+        if (!item.關鍵詞列表?.length) return false;
+        return filters.keyword.userSelected.selections.every(selection => {
+          return item.關鍵詞列表.some(kw => {
+            if (!kw || kw.大分類 !== selection.major) return false;
+            if (selection.type === 'mid') {
+              return kw.中分類 === selection.value;
+            } else if (selection.type === 'minor') {
+              return kw.中分類 === selection.mid && kw.小分類 === selection.value;
+            }
+            return false;
+          });
+        });
+      });
+    }
+    
+    if (filters.category?.level && filters.category?.value) {
+      result = result.filter(item => {
+        if (filters.category.level === 'category') {
+          return item['分類'] === filters.category.value;
+        }
+        return true;
+      });
+    }
+    
+    if (filters.publication) {
+      result = result.filter(item => item.刊別 === filters.publication);
+    }
+    
+    if (filters.edition) {
+      result = result.filter(item => String(item.版次) === String(filters.edition));
+    }
+    
+    this.availableDataCache.set(cacheKey, result);
+    
+    // 限制快取大小
+    if (this.availableDataCache.size > 20) {
+      const firstKey = this.availableDataCache.keys().next().value;
+      this.availableDataCache.delete(firstKey);
+    }
+    
+    return result;
+  }
 
-  // 註冊到應用程式模組系統
-  global.TaiwanNewsApp.StateManager = StateManager;
+  // ========================================
+  // 篩選器操作方法 - 增強版
+  // ========================================
 
-})(this);
+  setTitleFilter(level, value, parent = null) {
+    const currentFilter = this.state.filters.title;
+    
+    if (currentFilter.type === (level === 1 ? 'major' : 'mid') && 
+        currentFilter.value === value) {
+      this.clearTitleFilter();
+      return;
+    }
+    
+    if (level === 1) {
+      this.update({
+        'filters.title.type': 'major',
+        'filters.title.value': value,
+        'filters.title.major': null
+      });
+    } else if (level === 2) {
+      this.update({
+        'filters.title.type': 'mid',
+        'filters.title.value': value,
+        'filters.title.major': parent
+      });
+    }
+    
+    this.triggerFilterChange();
+  }
+
+  clearTitleFilter() {
+    this.update({
+      'filters.title.type': null,
+      'filters.title.value': null,
+      'filters.title.major': null
+    });
+    this.triggerFilterChange();
+  }
+
+  toggleKeywordSelection(selection) {
+    const selections = this.state.filters.keyword.userSelected.selections || [];
+    
+    const existingIndex = selections.findIndex(s => 
+      s.major === selection.major &&
+      s.type === selection.type &&
+      s.value === selection.value &&
+      (selection.type === 'minor' ? s.mid === selection.mid : true)
+    );
+    
+    let newSelections;
+    if (existingIndex >= 0) {
+      newSelections = selections.filter((_, index) => index !== existingIndex);
+    } else {
+      newSelections = [...selections, selection];
+    }
+    
+    this.update({
+      'filters.keyword.userSelected.selections': newSelections
+    });
+    this.triggerFilterChange();
+  }
+
+  clearKeywordFilters() {
+    this.update({
+      'filters.keyword.userSelected.selections': []
+    });
+    this.triggerFilterChange();
+  }
+
+  setCategoryFilter(level, value, parent = null) {
+    if (level !== 'category') {
+      console.warn('[StateManager] 欄目篩選只支援 category 層級');
+      return;
+    }
+    
+    const currentFilter = this.state.filters.category;
+    
+    if (currentFilter.level === level && currentFilter.value === value) {
+      this.clearCategoryFilter();
+      return;
+    }
+    
+    this.update({
+      'filters.category.level': level,
+      'filters.category.value': value,
+      'filters.category.parent': parent
+    });
+    this.triggerFilterChange();
+  }
+
+  clearCategoryFilter() {
+    this.update({
+      'filters.category.level': null,
+      'filters.category.value': null,
+      'filters.category.parent': null
+    });
+    this.triggerFilterChange();
+  }
+
+  setPublicationFilter(publication) {
+    const currentPublication = this.state.filters.publication;
+    
+    if (currentPublication === publication) {
+      this.set('filters.publication', null);
+    } else {
+      this.set('filters.publication', publication);
+    }
+    this.triggerFilterChange();
+  }
+
+  setEditionFilter(edition) {
+    const currentEdition = this.state.filters.edition;
+    
+    if (String(currentEdition) === String(edition)) {
+      this.set('filters.edition', null);
+    } else {
+      this.set('filters.edition', edition);
+    }
+    this.triggerFilterChange();
+  }
+
+  // 新增：日期篩選操作方法
+  setDateFilter(startDate, endDate) {
+    this.update({
+      'filters.startDate': startDate,
+      'filters.endDate': endDate,
+      'filters.dateFilterType': 'western'
+    });
+    this.triggerFilterChange();
+  }
+
+  setEraFilter(era, startYear, endYear) {
+    this.update({
+      'filters.era': era,
+      'filters.eraStartYear': startYear,
+      'filters.eraEndYear': endYear,
+      'filters.dateFilterType': 'japanese'
+    });
+    this.triggerFilterChange();
+  }
+
+  clearDateFilter() {
+    this.update({
+      'filters.startDate': null,
+      'filters.endDate': null,
+      'filters.era': null,
+      'filters.eraStartYear': null,
+      'filters.eraEndYear': null,
+      'filters.dateFilterType': 'western'
+    });
+    this.triggerFilterChange();
+  }
+
+  resetFilters() {
+    this.update({
+      'filters.startYear': 1895,
+      'filters.endYear': 1945,
+      'filters.startDate': null,
+      'filters.endDate': null,
+      'filters.dateFilterType': 'western',
+      'filters.era': null,
+      'filters.eraStartYear': null,
+      'filters.eraEndYear': null,
+      'filters.title': { type: null, value: null, major: null },
+      'filters.keyword': { userSelected: { selections: [] } },
+      'filters.category': { level: null, value: null, parent: null },
+      'filters.publication': null,
+      'filters.edition': null,
+      'currentPage': 1
+    });
+    this.triggerFilterChange();
+  }
+
+  // ========================================
+  // 選項列表方法
+  // ========================================
+
+  getAvailablePublications() {
+    const data = this.getAvailableData('publication');
+    const publications = new Set();
+    
+    data.forEach(item => {
+      const pub = item.刊別;
+      if (pub) publications.add(pub);
+    });
+    
+    return Array.from(publications).sort();
+  }
+
+  getAvailableEditions() {
+    const data = this.getAvailableData('edition');
+    const editions = new Set();
+    
+    data.forEach(item => {
+      const edition = item.版次;
+      if (edition) editions.add(String(edition));
+    });
+    
+    return Array.from(editions).sort((a, b) => {
+      const numA = parseInt(a) || 0;
+      const numB = parseInt(b) || 0;
+      return numA - numB;
+    });
+  }
+
+  // ========================================
+  // 狀態檢查方法
+  // ========================================
+
+  isDataLoaded() {
+    return this.state.isDataLoaded;
+  }
+
+  setDataLoaded(value = true) {
+    this.set('isDataLoaded', value);
+  }
+
+  // ========================================
+  // 監聽器管理
+  // ========================================
+
+  addListener(callback) {
+    this.listeners.add(callback);
+    return () => this.listeners.delete(callback);
+  }
+
+  removeListener(callback) {
+    this.listeners.delete(callback);
+  }
+
+  notifyStateChange(changes) {
+    if (this.notifyTimer) {
+      clearTimeout(this.notifyTimer);
+    }
+    
+    this.notifyTimer = setTimeout(() => {
+      if (typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(() => {
+          this.listeners.forEach(listener => {
+            try {
+              listener(changes, this.state);
+            } catch (error) {
+              console.error('狀態監聽器錯誤:', error);
+            }
+          });
+          this.notifyTimer = null;
+        });
+      } else {
+        this.listeners.forEach(listener => {
+          try {
+            listener(changes, this.state);
+          } catch (error) {
+            console.error('狀態監聽器錯誤:', error);
+          }
+        });
+        this.notifyTimer = null;
+      }
+    }, 16);
+  }
+
+  triggerFilterChange() {
+    this.state.currentPage = 1;
+    this.clearCaches();
+    
+    this.notifyStateChange({
+      currentPage: 1,
+      filters: this.state.filters,
+      type: 'filterChange'
+    });
+    
+    // 也觸發DOM事件
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        const event = new CustomEvent('stateChange', {
+          detail: {
+            type: 'filterChange',
+            filters: this.state.filters
+          }
+        });
+        window.dispatchEvent(event);
+      }, 0);
+    }
+  }
+
+  // ========================================
+  // 工具方法 - 增強版
+  // ========================================
+
+  generateCacheKey() {
+    const filters = this.state.filters;
+    const searchId = this.state.currentSearchData?.query || 'no-search';
+    
+    const dateKey = filters.startDate || filters.endDate ? 
+      `${filters.startDate?.getTime()}-${filters.endDate?.getTime()}` : 'no-date';
+    
+    const eraKey = filters.era ? 
+      `${filters.era}-${filters.eraStartYear}-${filters.eraEndYear}` : 'no-era';
+    
+    return `${searchId}-${filters.startYear}-${filters.endYear}-${dateKey}-${eraKey}-${
+      filters.title.type || 'no-title'
+    }-${filters.keyword.userSelected.selections.length}-${
+      filters.category.level || 'no-category'
+    }-${filters.publication || 'no-pub'}-${filters.edition || 'no-edition'}`;
+  }
+
+  clearCaches() {
+    this.filteredDataCache.clear();
+    this.availableDataCache.clear();
+  }
+
+  cleanup() {
+    this.listeners.clear();
+    this.clearCaches();
+    if (this.notifyTimer) {
+      clearTimeout(this.notifyTimer);
+      this.notifyTimer = null;
+    }
+  }
+}
+
+// 導出單例
+export const stateManager = new StateManager();
