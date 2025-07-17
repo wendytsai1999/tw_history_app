@@ -1,354 +1,405 @@
-// data.js - 資料處理模組
-// 最終修正版：確保正確的初始化
+// data.js - 優化版資料管理模組
 
-(function(global) {
-  'use strict';
+// ========================================
+// 資料管理類別
+// ========================================
 
-  // 取得 Utils 模組
-  const Utils = global.TaiwanNewsApp.Utils;
+class DataManager {
+  constructor() {
+    // 資料儲存
+    this.rawData = null;
+    this.processedData = [];
+    this.isLoading = false;
+    this._isDataLoaded = false;
+    
+    // 載入配置
+    this.config = {
+      timeout: 20000,
+      retryCount: 2,
+      retryDelay: 1000,
+      batchSize: 1000,
+      maxConcurrentRequests: 3
+    };
+    
+    // 資料來源URLs
+    this.dataUrls = {
+      keywords: [1, 2, 3, 4].map(i => 
+        `https://wendytsai1999.github.io/tw-history-data/keywords/split_keywords${i}.json`
+      ),
+      titles: [1, 2].map(i => 
+        `https://wendytsai1999.github.io/tw-history-data/titles/split_titles${i}.json`
+      )
+    };
+    
+    // 快速查找索引（只保留必要的）
+    this.indexes = {
+      byId: new Map(),
+      yearStats: new Map(),
+      publicationList: new Set(),
+      editionList: new Set()
+    };
+    
+    // 效能監控
+    this.metrics = {
+      loadStartTime: 0,
+      loadEndTime: 0,
+      totalRecords: 0
+    };
+    
+    // Utils 依賴
+    this.utils = null;
+  }
+
+  // 初始化
+  init(utils) {
+    this.utils = utils;
+  }
 
   // ========================================
-  // 私有變數 - 只有這個模組內部能使用
+  // 網路請求方法
   // ========================================
-  let rawData = [];
-  let processedData = [];
-  let indexes = {
-    titleMajor: new Map(),
-    titleMid: new Map(),
-    keywordsByCategory: new Map(),
-    yearIndex: new Map()
-  };
 
-  // 資料來源 URLs
-  const DATA_URLS = {
-    keywords: [1, 2, 3, 4].map(i => 
-      `https://wendytsai1999.github.io/tw-history-data/keywords/split_keywords${i}.json`
-    ),
-    titles: [1, 2].map(i => 
-      `https://wendytsai1999.github.io/tw-history-data/titles/split_titles${i}.json`
-    )
-  };
-
-  // ========================================
-  // 私有函數 - 只供內部使用
-  // ========================================
-  
-  // 安全載入 JSON 檔案
-  async function safeLoadJson(url) {
+  async fetchWithTimeout(url, timeout = this.config.timeout) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
     try {
-      console.log(`開始載入：${url}`);
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const text = await response.text();
-      console.log(`載入完成：${url}，大小：${text.length} 字元`);
-      
-      if (!text.trim()) {
-        console.warn(`檔案為空：${url}`);
-        return [];
-      }
-      
-      const data = JSON.parse(text);
-      console.log(`解析完成：${url}，資料筆數：${Array.isArray(data) ? data.length : '非陣列'}`);
-      
-      return Array.isArray(data) ? data : [];
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      return response;
     } catch (error) {
-      console.error(`載入失敗 ${url}:`, error);
-      
-      // 如果是網路錯誤，提供更詳細的資訊
-      if (error.name === 'TypeError' && error.message.includes('fetch')) {
-        console.error('可能的網路連線問題或 CORS 錯誤');
-      }
-      
-      return [];
+      clearTimeout(timeoutId);
+      throw error;
     }
   }
 
-  // 建立快速查找索引
-  function buildIndexes() {
-    // 清空現有索引
-    indexes.titleMajor.clear();
-    indexes.titleMid.clear();
-    indexes.keywordsByCategory.clear();
-    indexes.yearIndex.clear();
-
-    processedData.forEach((item, index) => {
-      // 建立標題分類索引
-      if (item.標題大分類) {
-        if (!indexes.titleMajor.has(item.標題大分類)) {
-          indexes.titleMajor.set(item.標題大分類, []);
+  async loadJsonWithRetry(url, retryCount = this.config.retryCount) {
+    for (let attempt = 1; attempt <= retryCount; attempt++) {
+      try {
+        const response = await this.fetchWithTimeout(url);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
         }
-        indexes.titleMajor.get(item.標題大分類).push(index);
-      }
-
-      if (item.標題中分類) {
-        if (!indexes.titleMid.has(item.標題中分類)) {
-          indexes.titleMid.set(item.標題中分類, []);
+        
+        const text = await response.text();
+        if (!text.trim()) {
+          throw new Error('空檔案');
         }
-        indexes.titleMid.get(item.標題中分類).push(index);
-      }
-
-      // 建立年份索引
-      if (item._年份) {
-        if (!indexes.yearIndex.has(item._年份)) {
-          indexes.yearIndex.set(item._年份, []);
+        
+        const data = JSON.parse(text);
+        return Array.isArray(data) ? data : [];
+        
+      } catch (error) {
+        if (attempt === retryCount) {
+          console.error(`[DataManager] 載入失敗: ${url}`, error.message);
+          return [];
         }
-        indexes.yearIndex.get(item._年份).push(index);
+        
+        await new Promise(resolve => 
+          setTimeout(resolve, this.config.retryDelay * attempt)
+        );
       }
-
-      // 建立關鍵詞分類索引
-      if (item.關鍵詞列表) {
-        item.關鍵詞列表.forEach(kw => {
-          const key = `${kw.大分類}|${kw.中分類}|${kw.小分類}`;
-          if (!indexes.keywordsByCategory.has(key)) {
-            indexes.keywordsByCategory.set(key, []);
-          }
-          indexes.keywordsByCategory.get(key).push(index);
-        });
-      }
-    });
+    }
+    return [];
   }
 
-  // 處理和合併資料
-  function processRawData(keywords, titles) {
-    // 使用 Map 來提高查找效能
+  async loadMultipleFiles(urls, fileType) {
+    const loadPromises = urls.map(async (url, index) => {
+      try {
+        const data = await this.loadJsonWithRetry(url);
+        return { index, data, success: true };
+      } catch (error) {
+        console.warn(`[DataManager] ${fileType} 檔案 ${index + 1} 載入失敗:`, error);
+        return { index, data: [], success: false };
+      }
+    });
+    
+    const results = await Promise.all(loadPromises);
+    
+    // 按順序合併結果
+    return results
+      .sort((a, b) => a.index - b.index)
+      .flatMap(result => result.data);
+  }
+
+  // ========================================
+  // 資料處理方法
+  // ========================================
+
+  async processRawData(keywords, titles) {
+    console.log(`[DataManager] 開始處理資料 - 關鍵詞: ${keywords.length}, 標題: ${titles.length}`);
+    
     const titleMap = new Map();
     const kwMap = new Map();
 
     // 處理標題資料
-    const titleBatch = titles.filter(t => Number(t.資料編號) > 0);
-    titleBatch.forEach(t => {
+    const validTitles = titles.filter(t => {
       const id = Number(t.資料編號);
-      titleMap.set(id, {
-        資料編號: t.資料編號, 
-        時間: t.時間 || t.日期 || '', 
-        題名: t.題名 || '',
-        標題大分類: t.標題大分類 || '(未分類)', 
-        標題中分類: t.標題中分類 || '',
-        _日期: Utils.parseDate(t.時間 || t.日期), 
-        _年份: Utils.parseYear(t._年份 || t.時間 || t.日期)
-      });
+      return id > 0 && !isNaN(id) && t.題名;
     });
+    
+    for (const t of validTitles) {
+      const id = Number(t.資料編號);
+      const processedTitle = {
+        資料編號: t.資料編號,
+        時間: t.時間 || t.日期 || '',
+        題名: t.題名 || '',
+        作者: t.作者 || '',
+        標題大分類: t.標題大分類 || '(未分類)',
+        標題中分類: t.標題中分類 || '',
+        分類: t.分類 || '',
+        '分類(一)': t['分類(一)'] || t.分類一 || '',
+        '分類(二)': t['分類(二)'] || t.分類二 || '',
+        '分類(三)': t['分類(三)'] || t.分類三 || '',
+        刊別: t.刊別 || t.版面類型 || '',
+        語文: t.語文 || t.語言 || '',
+        版次: t.版次 || t.版面 || '',
+        _日期: this.utils?.parseDate(t.時間 || t.日期) || null,
+        _年份: this.utils?.parseYear(t._年份 || t.時間 || t.日期) || null
+      };
+      
+      titleMap.set(id, processedTitle);
+      
+      // 建立統計索引
+      if (processedTitle._年份) {
+        const count = this.indexes.yearStats.get(processedTitle._年份) || 0;
+        this.indexes.yearStats.set(processedTitle._年份, count + 1);
+      }
+      if (processedTitle.刊別) this.indexes.publicationList.add(processedTitle.刊別);
+      if (processedTitle.版次) this.indexes.editionList.add(processedTitle.版次);
+    }
 
     // 處理關鍵詞資料
-    const keywordBatch = keywords.filter(k => Number(k.資料編號) > 0);
-    keywordBatch.forEach(k => {
+    const validKeywords = keywords.filter(k => {
+      const id = Number(k.資料編號);
+      return id > 0 && !isNaN(id);
+    });
+    
+    for (const k of validKeywords) {
       const id = Number(k.資料編號);
       if (!kwMap.has(id)) kwMap.set(id, []);
+      
       kwMap.get(id).push({
-        關鍵詞: Utils.parseKeywords(k.關鍵詞), 
-        大分類: k.大分類 || '(未分類)', 
-        中分類: k.中分類 || '', 
+        關鍵詞: this.utils?.parseKeywords(k.關鍵詞) || [k.關鍵詞 || ''],
+        大分類: k.大分類 || '(未分類)',
+        中分類: k.中分類 || '',
         小分類: k.小分類 || ''
       });
-    });
+    }
 
     // 合併資料
-    return Array.from(titleMap.values()).map(t => ({ 
-      ...t, 
-      關鍵詞列表: kwMap.get(Number(t.資料編號)) || [] 
-    }));
+    const mergedData = [];
+    for (const [id, titleData] of titleMap) {
+      const item = {
+        ...titleData,
+        關鍵詞列表: kwMap.get(id) || []
+      };
+      mergedData.push(item);
+      this.indexes.byId.set(id, item);
+    }
+
+    this.metrics.totalRecords = mergedData.length;
+    console.log(`[DataManager] 資料處理完成: ${mergedData.length} 筆記錄`);
+    
+    return mergedData;
   }
 
   // ========================================
-  // 公開的 API - 外部可以使用的函數
+  // 公開方法
   // ========================================
-  const DataManager = {
-    // 初始化並載入所有資料
-    async loadData(progressCallback) {
-      try {
-        // 通知開始載入
-        if (progressCallback) progressCallback('初始化載入程序...', 'info');
 
-        // 重置狀態
-        rawData = [];
-        processedData = [];
-        indexes = {
-          titleMajor: new Map(),
-          titleMid: new Map(),
-          keywordsByCategory: new Map(),
-          yearIndex: new Map()
-        };
-
-        // 載入關鍵詞資料
-        if (progressCallback) progressCallback('載入關鍵詞資料...', 'info');
-        
-        const keywordPromises = DATA_URLS.keywords.map(url => safeLoadJson(url));
-        const keywordArrays = await Promise.all(keywordPromises);
-        const keywords = keywordArrays.flat().filter(Boolean);
-        
-        console.log(`關鍵詞資料載入完成：${keywords.length} 筆`);
-        
-        // 載入標題資料
-        if (progressCallback) progressCallback('載入標題資料...', 'info');
-        
-        const titlePromises = DATA_URLS.titles.map(url => safeLoadJson(url));
-        const titleArrays = await Promise.all(titlePromises);
-        const titles = titleArrays.flat().filter(Boolean);
-        
-        console.log(`標題資料載入完成：${titles.length} 筆`);
-
-        // 檢查是否有載入到資料
-        if (keywords.length === 0 && titles.length === 0) {
-          throw new Error('無法載入任何資料，請檢查網路連線或資料來源');
-        }
-
-        if (titles.length === 0) {
-          throw new Error('標題資料載入失敗');
-        }
-
-        // 處理資料
-        if (progressCallback) progressCallback('處理資料中...', 'info');
-        rawData = { keywords, titles };
-        processedData = processRawData(keywords, titles);
-        
-        console.log(`資料處理完成：${processedData.length} 筆`);
-        
-        if (processedData.length === 0) {
-          throw new Error('資料處理後為空，可能資料格式有問題');
-        }
-        
-        // 建立索引
-        if (progressCallback) progressCallback('建立索引中...', 'info');
-        buildIndexes();
-        
-        console.log('索引建立完成');
-        
-        // 載入完成
-        if (progressCallback) {
-          progressCallback(`載入完成：${processedData.length.toLocaleString()} 筆資料`, 'ok');
-        }
-
-        return true;
-        
-      } catch (error) {
-        console.error('資料載入失敗:', error);
-        
-        if (progressCallback) {
-          progressCallback(`載入失敗：${error.message}`, 'error');
-        }
-        
-        return false;
-      }
-    },
-
-    // 取得所有處理過的資料
-    getAllData() {
-      return processedData;
-    },
-
-    // 取得原始資料
-    getRawData() {
-      return rawData;
-    },
-
-    // 取得索引
-    getIndexes() {
-      return indexes;
-    },
-
-    // 取得資料統計
-    getStats() {
-      return {
-        total: processedData.length,
-        hasTitle: processedData.filter(item => item.題名).length,
-        hasKeywords: processedData.filter(item => item.關鍵詞列表.length > 0).length,
-        dateRange: {
-          start: Math.min(...processedData.map(item => item._年份).filter(Boolean)),
-          end: Math.max(...processedData.map(item => item._年份).filter(Boolean))
-        }
-      };
-    },
-
-    // 根據年份範圍取得資料
-    getDataByYearRange(startYear, endYear) {
-      let result = [];
-      for (let year = startYear; year <= endYear; year++) {
-        if (indexes.yearIndex.has(year)) {
-          const yearIndices = indexes.yearIndex.get(year);
-          result.push(...yearIndices.map(i => processedData[i]));
-        }
-      }
-      return result;
-    },
-
-    // 根據標題分類取得資料
-    getDataByTitleCategory(major, mid) {
-      const result = [];
-      
-      if (major && indexes.titleMajor.has(major)) {
-        const indices = indexes.titleMajor.get(major);
-        const items = indices.map(i => processedData[i]);
-        
-        if (mid) {
-          return items.filter(item => item.標題中分類 === mid);
-        }
-        return items;
-      }
-      
-      return result;
-    },
-
-    // 根據關鍵詞分類取得資料
-    getDataByKeywordCategory(major, mid, minor) {
-      const result = [];
-      const searchKey = `${major || ''}|${mid || ''}|${minor || ''}`;
-      
-      // 找到所有符合條件的組合
-      for (const [key, indices] of indexes.keywordsByCategory.entries()) {
-        const [keyMajor, keyMid, keyMinor] = key.split('|');
-        
-        const majorMatch = !major || keyMajor === major;
-        const midMatch = !mid || keyMid === mid;
-        const minorMatch = !minor || keyMinor === minor;
-        
-        if (majorMatch && midMatch && minorMatch) {
-          result.push(...indices.map(i => processedData[i]));
-        }
-      }
-      
-      // 去除重複項目
-      const uniqueResult = [];
-      const seenIds = new Set();
-      
-      result.forEach(item => {
-        if (!seenIds.has(item.資料編號)) {
-          seenIds.add(item.資料編號);
-          uniqueResult.push(item);
-        }
-      });
-      
-      return uniqueResult;
-    },
-
-    // 重新載入資料
-    async reload(progressCallback) {
-      processedData = [];
-      indexes = {
-        titleMajor: new Map(),
-        titleMid: new Map(),
-        keywordsByCategory: new Map(),
-        yearIndex: new Map()
-      };
-      
-      return await this.loadData(progressCallback);
-    },
-
-    // 檢查資料是否已載入
-    isDataLoaded() {
-      return processedData.length > 0;
-    },
-
-    // 取得處理過的資料數量
-    getDataCount() {
-      return processedData.length;
+  async loadData(callbacks = {}) {
+    if (this.isLoading) {
+      return this.processedData.length > 0;
     }
-  };
+    
+    this.isLoading = true;
+    
+    try {
+      this.metrics.loadStartTime = performance.now();
+      
+      if (callbacks.progressCallback) {
+        callbacks.progressCallback('初始化載入程序...', 'info');
+      }
 
-  // 註冊到應用程式模組系統
-  global.TaiwanNewsApp.DataManager = DataManager;
+      // 重置狀態
+      this.processedData = [];
+      this._isDataLoaded = false;
+      this.indexes.byId.clear();
+      this.indexes.yearStats.clear();
+      this.indexes.publicationList.clear();
+      this.indexes.editionList.clear();
 
-})(this);
+      // 載入關鍵詞資料
+      if (callbacks.progressCallback) {
+        callbacks.progressCallback('載入關鍵詞資料...', 'info');
+      }
+      const keywords = await this.loadMultipleFiles(this.dataUrls.keywords, '關鍵詞');
+      
+      // 載入標題資料
+      if (callbacks.progressCallback) {
+        callbacks.progressCallback('載入標題資料...', 'info');
+      }
+      const titles = await this.loadMultipleFiles(this.dataUrls.titles, '標題');
+
+      // 處理資料
+      if (callbacks.progressCallback) {
+        callbacks.progressCallback('處理並合併資料...', 'info');
+      }
+      this.rawData = { keywords, titles };
+      this.processedData = await this.processRawData(keywords, titles);
+      
+      this.metrics.loadEndTime = performance.now();
+      const totalTime = (this.metrics.loadEndTime - this.metrics.loadStartTime) / 1000;
+      
+      this._isDataLoaded = true;
+      
+      console.log(`[DataManager] 載入完成 - 總耗時: ${totalTime.toFixed(2)}秒`);
+      
+      if (callbacks.progressCallback) {
+        callbacks.progressCallback(`載入完成：${this.processedData.length.toLocaleString()} 筆資料`, 'ok');
+      }
+      
+      if (callbacks.onDataLoaded) {
+        callbacks.onDataLoaded(this.processedData);
+      }
+      
+      return true;
+      
+    } catch (error) {
+      console.error('[DataManager] 載入失敗:', error);
+      
+      if (callbacks.progressCallback) {
+        callbacks.progressCallback(`載入失敗：${error.message}`, 'error');
+      }
+      
+      return false;
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  // 取得所有資料
+  getAllData() {
+    return this.processedData;
+  }
+
+  // 檢查資料是否已載入
+  isDataLoaded() {
+    return this._isDataLoaded && this.processedData.length > 0;
+  }
+
+  // 檢查是否正在載入
+  isLoading() {
+    return this.isLoading;
+  }
+
+  // 取得統計資訊
+  getStats() {
+    if (!this.isDataLoaded) {
+      return {
+        total: 0,
+        hasTitle: 0,
+        hasKeywords: 0,
+        hasAuthor: 0,
+        publications: [],
+        editions: [],
+        dateRange: { start: null, end: null }
+      };
+    }
+
+    const validYears = Array.from(this.indexes.yearStats.keys())
+      .filter(year => year >= 1895 && year <= 1945)
+      .sort((a, b) => a - b);
+
+    return {
+      total: this.processedData.length,
+      hasTitle: this.processedData.filter(item => item.題名).length,
+      hasKeywords: this.processedData.filter(item => item.關鍵詞列表?.length > 0).length,
+      hasAuthor: this.processedData.filter(item => item.作者).length,
+      publications: Array.from(this.indexes.publicationList).sort(),
+      editions: Array.from(this.indexes.editionList)
+        .map(String)
+        .sort((a, b) => {
+          const numA = parseInt(a) || 0;
+          const numB = parseInt(b) || 0;
+          return numA - numB;
+        }),
+      dateRange: validYears.length > 0 ? {
+        start: validYears[0],
+        end: validYears[validYears.length - 1]
+      } : { start: null, end: null },
+      yearStats: Object.fromEntries(this.indexes.yearStats),
+      metrics: { ...this.metrics }
+    };
+  }
+
+  // 根據年份範圍取得資料
+  getDataByYearRange(startYear, endYear) {
+    if (!this.isDataLoaded) return [];
+    
+    return this.processedData.filter(item => {
+      return item._年份 && item._年份 >= startYear && item._年份 <= endYear;
+    });
+  }
+
+  // 根據ID取得資料
+  getDataById(id) {
+    return this.indexes.byId.get(Number(id)) || null;
+  }
+
+  // 取得可用的刊別
+  getAvailablePublications() {
+    return Array.from(this.indexes.publicationList).sort();
+  }
+
+  // 取得可用的版次
+  getAvailableEditions() {
+    return Array.from(this.indexes.editionList)
+      .map(String)
+      .sort((a, b) => {
+        const numA = parseInt(a) || 0;
+        const numB = parseInt(b) || 0;
+        return numA - numB;
+      });
+  }
+
+  // 重新載入資料
+  async reload(callbacks = {}) {
+    console.log('[DataManager] 重新載入資料');
+    this._isDataLoaded = false;
+    this.processedData = [];
+    return await this.loadData(callbacks);
+  }
+
+  // 記憶體清理
+  cleanup() {
+    this.rawData = null;
+    this.indexes.byId.clear();
+    this.indexes.yearStats.clear();
+    this.indexes.publicationList.clear();
+    this.indexes.editionList.clear();
+    
+    if (typeof window !== 'undefined' && window.gc) {
+      window.gc();
+    }
+  }
+
+  // 取得記憶體使用情況
+  getMemoryUsage() {
+    const estimate = {
+      processedDataSize: JSON.stringify(this.processedData).length,
+      indexSize: this.indexes.byId.size * 100, // 估算
+      totalSize: 0
+    };
+    
+    estimate.totalSize = estimate.processedDataSize + estimate.indexSize;
+    estimate.totalSizeMB = (estimate.totalSize / 1024 / 1024).toFixed(2);
+    
+    return estimate;
+  }
+}
+
+// 導出單例
+export const dataManager = new DataManager();
