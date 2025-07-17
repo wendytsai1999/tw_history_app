@@ -18,33 +18,37 @@
     <div class="container mx-auto px-4 py-3">
       <div class="flex justify-between items-center">
         <h1 class="text-3xl font-bold text-gray-800">
-          臺灣日日新報智能檢索系統
+          臺灣日日新報資料庫
         </h1>
         <div class="flex space-x-6">
           <a href="#" class="nav-tab" data-tab="home">首頁</a>
-          <a href="#" class="nav-tab" data-tab="browse">資料瀏覽</a>
-          <a href="#" class="nav-tab active" data-tab="search">資料檢索</a>
+          <a href="#" class="nav-tab active" data-tab="database">資料庫</a>
         </div>
       </div>
       
       <!-- 載入進度 -->
       <div class="flex justify-center mt-3">
-        <div id="load-progress" class="bg-gray-100 text-gray-700 px-3 py-1 rounded border text-sm">正在載入資料...</div>
+        <div id="load-progress" class="bg-blue-100 text-blue-700 px-3 py-1 rounded border text-sm">正在載入資料...</div>
       </div>
     </div>
   </div>
 
-  <!-- 檢索區域 - 放在三欄之上 -->
+  <!-- 檢索模式選擇 -->
   <div class="bg-white border-b shadow-sm">
+    <div class="container mx-auto">
+      <div class="flex border-b">
+        <div class="search-tab active" data-mode="smart" id="smart-tab">智能檢索</div>
+        <div class="search-tab" data-mode="general" id="general-tab">一般檢索</div>
+        <div class="search-tab" data-mode="browse" id="browse-tab">資料瀏覽</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 檢索區域 -->
+  <div class="bg-white border-b shadow-sm" id="search-area">
     <div class="container mx-auto p-4">
       <div class="bg-white rounded-lg border overflow-hidden">
         
-        <!-- 檢索方式選擇 -->
-        <div class="flex border-b">
-          <div class="search-tab active" data-mode="smart" id="smart-tab">智能檢索</div>
-          <div class="search-tab" data-mode="traditional" id="traditional-tab">傳統檢索</div>
-        </div>
-
         <!-- 智能檢索面板 -->
         <div id="smart-search-panel" class="p-4">
           <div class="mb-4">
@@ -62,7 +66,6 @@
               </button>
             </div>
           </div>
-
           <div class="mb-4">
             <label class="block text-sm font-medium text-gray-600 mb-2">查詢範例</label>
             <div class="flex flex-wrap" id="example-queries">
@@ -77,7 +80,6 @@
               <span class="query-tag" data-query="製糖公司大多分布在哪些縣市？">製糖產業分布</span>
             </div>
           </div>
-
           <div id="search-status" class="hidden bg-gray-50 border border-gray-300 rounded-lg p-4 mb-4">
             <div class="flex items-center">
               <div class="search-animation mr-3">
@@ -86,7 +88,6 @@
               <span class="text-gray-700 font-medium text-sm">正在分析查詢語句...</span>
             </div>
           </div>
-
           <div id="query-analysis" class="hidden bg-green-100 border border-green-300 rounded-lg p-4">
             <h4 class="font-semibold text-green-800 mb-3 text-sm">AI分析檢索邏輯</h4>
             <div class="p-3 bg-white border border-green-200 rounded">
@@ -95,55 +96,66 @@
           </div>
         </div>
 
-        <!-- 傳統檢索面板 -->
-        <div id="traditional-search-panel" class="p-4 hidden">
-          <div class="traditional-help">
-            <strong>使用說明：</strong> 
-            支援布林邏輯 - 使用 AND、OR、NOT 運算子（不區分大小寫）。
-            例如：「高雄 AND 港口」、「教育 OR 學校」、「政策 NOT 軍事」
-          </div>
-
-          <div class="mb-4">
-            <div class="search-container flex gap-2">
-              <div class="flex-1 relative">
-                <input id="traditional-search-input" type="text" 
-                       placeholder="請輸入檢索詞，支援布林邏輯：高雄 AND 港口、教育 OR 學校、政策 NOT 軍事"
-                       class="w-full border-2 border-gray-300 rounded-lg px-4 py-3 pr-20 focus:border-gray-500 focus:outline-none text-sm" />
-                <span id="clear-traditional-search" class="clear-btn">✕</span>
+        <!-- 一般檢索面板 -->
+        <div id="general-search-panel" class="p-4" style="display: none;">
+          <div class="bg-white rounded-lg border overflow-hidden">
+            <div class="search-panel">
+              <div class="search-header">
+                <div class="search-title">一般檢索</div>
+                <div class="advanced-toggle">
+                  <span>進階檢索</span>
+                  <input type="checkbox" id="advanced-search-toggle">
+                </div>
               </div>
-              <button id="traditional-search-btn"
-                      class="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-4 py-3 rounded-lg hover:from-blue-700 hover:to-blue-900 transition-all duration-200 font-medium text-sm" 
-                      disabled>
-                檢索
-              </button>
-            </div>
-          </div>
-
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-gray-600 mb-2">檢索欄位</label>
-            <div class="flex flex-wrap" id="field-checkboxes">
-              <label class="field-checkbox">
-                <input type="checkbox" value="all" checked> 全部欄位
-              </label>
-              <label class="field-checkbox">
-                <input type="checkbox" value="題名"> 題名
-              </label>
-              <label class="field-checkbox">
-                <input type="checkbox" value="標題分類"> 標題分類
-              </label>
-              <label class="field-checkbox">
-                <input type="checkbox" value="關鍵詞"> 關鍵詞
-              </label>
-            </div>
-          </div>
-
-          <div id="traditional-result" class="hidden bg-blue-100 border border-blue-300 rounded-lg p-4">
-            <h4 class="font-semibold text-blue-800 mb-3 text-sm">檢索結果</h4>
-            <div class="p-3 bg-white border border-blue-200 rounded">
-              <div class="text-xs text-blue-800" id="traditional-result-display"></div>
+              <div class="search-main-row">
+                <div class="search-basic-section">
+                  <div class="search-row">
+                    <select id="general-search-field" class="search-field-select" style="min-width: 120px;">
+                      <option value="all">不限欄位</option>
+                      <option value="title">題名</option>
+                      <option value="author">作者</option>
+                      <option value="category">欄目</option>
+                      <option value="keyword">關鍵詞</option>
+                    </select>
+                    <input type="text" id="general-search-input" class="search-input flex-1" placeholder="請輸入檢索詞">
+                  </div>
+                  <!-- 進階檢索區域 -->
+                  <div id="advanced-conditions" class="advanced-conditions-list" style="display:none;"></div>
+                  <button class="add-condition-btn" id="add-advanced-condition-btn" style="display:none; margin-top: 12px;" title="新增檢索條件">＋ 新增條件</button>
+                </div>
+                <div class="date-filter-section">
+                  <div class="date-filter-header">日期篩選</div>
+                  <div class="date-filter-content">
+                    <div class="date-filter-body">
+                      <label><input type="radio" name="general-date-filter-type" value="western" checked>西元年</label>
+                      <label><input type="radio" name="general-date-filter-type" value="japanese">日治年號</label>
+                    </div>
+                    <div id="western-date-section" class="date-input-section">
+                      <input type="text" id="date-range-picker" value="1895-01-01 to 1945-12-31" class="date-picker-input">
+                    </div>
+                    <div id="japanese-date-section" class="date-input-section hidden">
+                      <select class="date-era-select">
+                        <option value="">選擇年號</option>
+                        <option value="明治">明治 (1895-1912)</option>
+                        <option value="大正">大正 (1912-1926)</option>
+                        <option value="昭和">昭和 (1926-1945)</option>
+                      </select>
+                      <div class="era-year-inputs">
+                        <input type="number" placeholder="起始年" class="era-year-input" min="1">
+                        <input type="number" placeholder="結束年" class="era-year-input" min="1">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <!-- 檢索按鈕移到右下角 -->
+              <div class="search-footer">
+                <button id="general-search-btn" class="search-btn">檢索</button>
+              </div>
             </div>
           </div>
         </div>
+
       </div>
     </div>
   </div>
@@ -155,119 +167,31 @@
       <!-- 左側篩選區域 (4/12) -->
       <div class="col-span-12 lg:col-span-4 space-y-4">
         
-        <!-- 日期篩選 -->
-        <div class="bg-white p-4 rounded-lg shadow border">
-          <h3 class="text-lg font-semibold mb-3 text-gray-800">日期篩選</h3>
-          
-          <!-- 日期篩選方式選擇 -->
-          <div class="mb-3">
-            <div class="flex space-x-4 mb-3">
-              <label class="date-filter-option">
-                <input type="radio" name="date-filter-type" value="western" checked>
-                <span class="text-sm">西元年</span>
-              </label>
-              <label class="date-filter-option">
-                <input type="radio" name="date-filter-type" value="japanese">
-                <span class="text-sm">日治年號</span>
-              </label>
-            </div>
-          </div>
-          
-          <!-- 西元年篩選 -->
-          <div id="western-date-filter" class="date-filter-panel">
-            <label class="block mb-1 text-gray-700 text-sm">1895/1/1 – 1945/12/31</label>
-            <input id="date-range" type="text" class="border border-gray-300 p-2 w-full rounded text-sm" 
-                   placeholder="請選擇日期 預設1895/1/1 – 1945/12/31" disabled />
-          </div>
-          
-          <!-- 日治年號篩選 -->
-          <div id="japanese-date-filter" class="date-filter-panel hidden">
-            <div class="mb-3">
-              <label class="block mb-1 text-gray-700 text-sm">年號選擇</label>
-              <select id="era-select" class="border border-gray-300 p-2 w-full rounded text-sm" disabled>
-                <option value="">選擇年號</option>
-                <option value="明治">明治 (1895-1912)</option>
-                <option value="大正">大正 (1912-1926)</option>
-                <option value="昭和">昭和 (1926-1945)</option>
-              </select>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block mb-1 text-gray-700 text-sm">起始年</label>
-                <input id="era-start-year" type="number" class="border border-gray-300 p-2 w-full rounded text-sm" 
-                       placeholder="年號年" min="1" disabled />
-              </div>
-              <div>
-                <label class="block mb-1 text-gray-700 text-sm">結束年</label>
-                <input id="era-end-year" type="number" class="border border-gray-300 p-2 w-full rounded text-sm" 
-                       placeholder="年號年" min="1" disabled />
-              </div>
-            </div>
-            <button id="apply-era-filter" class="mt-3 w-full bg-blue-600 text-white py-2 px-4 rounded text-sm hover:bg-blue-700 transition-colors" disabled>
-              套用年號篩選
-            </button>
-          </div>
-        </div>
-
         <!-- 年代分布圖 -->
         <div class="bg-white p-4 rounded-lg shadow border">
           <h4 class="text-lg font-semibold mb-3 text-gray-800">年代分布</h4>
+          <div class="text-xs text-gray-600 mb-2">
+            💡 點擊圖表或輸入起訖年份進行篩選
+          </div>
           <div class="chart-container">
             <canvas id="yearChart"></canvas>
           </div>
+          <!-- 年份篩選輸入區域 -->
+          <div id="year-filter-inputs" class="mt-2 flex items-center gap-2">
+            <label class="text-sm text-blue-700">起始年
+              <input id="start-year-input" type="number" min="1895" max="1945" value="1895" class="border border-blue-300 rounded px-2 py-1 w-20 ml-1" />
+            </label>
+            <span class="text-gray-500">~</span>
+            <label class="text-sm text-blue-700">結束年
+              <input id="end-year-input" type="number" min="1895" max="1945" value="1945" class="border border-blue-300 rounded px-2 py-1 w-20 ml-1" />
+            </label>
+            <button id="apply-year-filter-btn" class="ml-2 px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm">篩選</button>
+          </div>
         </div>
 
-        <!-- 篩選模式切換器 -->
+        <!-- 題名分類篩選 -->
         <div class="bg-white p-4 rounded-lg shadow border">
-          <h3 class="text-lg font-semibold mb-3 text-gray-800">篩選模式</h3>
-          
-          <!-- 模式切換器 -->
-          <div class="filter-mode-switcher mb-3">
-            <div class="mode-toggle-container">
-              <input type="checkbox" id="filter-mode-toggle" class="mode-toggle-input">
-              <label for="filter-mode-toggle" class="mode-toggle-label">
-                <span class="mode-toggle-slider">
-                  <span class="mode-toggle-button"></span>
-                </span>
-                <span class="mode-text mode-text-left">AND交集</span>
-                <span class="mode-text mode-text-right">OR聯集</span>
-              </label>
-            </div>
-          </div>
-          
-          <!-- 模式說明 -->
-          <div class="mode-description">
-            <p id="mode-desc-text" class="text-sm text-gray-600">
-              交集模式：選擇會互相影響，逐步縮小範圍
-            </p>
-          </div>
-        </div>
-
-        <!-- 篩選結果統計 -->
-        <div id="filter-statistics" class="bg-white p-4 rounded-lg shadow border hidden">
-          <h4 class="text-lg font-semibold mb-3 text-gray-800">篩選統計</h4>
-          <div class="statistics-grid">
-            <div class="stat-item">
-              <span class="stat-label">篩選結果：</span>
-              <span id="filtered-total-count" class="stat-value">0</span>
-              <span class="stat-unit">筆</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">標題分類：</span>
-              <span id="title-filter-count" class="stat-value">0</span>
-              <span class="stat-unit">項</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">關鍵詞分類：</span>
-              <span id="keyword-filter-count" class="stat-value">0</span>
-              <span class="stat-unit">項</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 標題分類篩選 -->
-        <div class="bg-white p-4 rounded-lg shadow border">
-          <h3 class="text-lg font-semibold mb-3 text-gray-800">標題分類</h3>
+          <h3 class="text-lg font-semibold mb-3 text-gray-800">題名分類</h3>
           <div class="tree-filter-container" id="title-tree-container">
             <div class="tree-loading">載入中...</div>
           </div>
@@ -276,26 +200,39 @@
         <!-- 關鍵詞分類篩選 -->
         <div class="bg-white p-4 rounded-lg shadow border">
           <h3 class="text-lg font-semibold mb-3 text-gray-800">關鍵詞分類</h3>
-          
-          <!-- 關鍵詞大分類選擇 -->
-          <div class="mb-4">
-            <label class="block text-gray-700 mb-2 text-sm">關鍵詞大分類</label>
-            <select id="keyword-major-select" class="border border-gray-300 p-2 w-full rounded text-sm" disabled>
-              <option value="">請選擇大分類</option>
-            </select>
+          <div class="keyword-trees-container" id="keyword-trees-container">
+            <div class="tree-empty">無可用關鍵詞</div>
           </div>
-          
-          <!-- 關鍵詞中分類和小分類樹狀結構 -->
-          <div class="tree-filter-container" id="keyword-tree-container">
-            <!-- 移除提示文字，保持空白 -->
+        </div>
+
+        <!-- 欄目篩選 -->
+        <div class="bg-white p-4 rounded-lg shadow border">
+          <h3 class="text-lg font-semibold mb-3 text-gray-800">欄目篩選</h3>
+          <div class="tree-filter-container" id="column-tree-container">
+            <div class="tree-empty">載入中...</div>
           </div>
+        </div>
+
+        <!-- 刊別篩選 -->
+        <div class="bg-white p-4 rounded-lg shadow border">
+          <h3 class="text-lg font-semibold mb-3 text-gray-800">刊別</h3>
+          <select id="publication-select" class="w-full border border-gray-300 p-2 rounded text-sm">
+            <option value="">全部</option>
+          </select>
+        </div>
+
+        <!-- 版次篩選 -->
+        <div class="bg-white p-4 rounded-lg shadow border">
+          <h3 class="text-lg font-semibold mb-3 text-gray-800">版次</h3>
+          <select id="edition-select" class="w-full border border-gray-300 p-2 rounded text-sm" disabled>
+            <option value="">全部版次</option>
+          </select>
         </div>
 
         <!-- 重設按鈕 -->
         <div class="bg-white p-4 rounded-lg shadow border">
           <button id="reset-filters-btn" 
-                  class="w-full bg-gray-200 px-4 py-2 rounded hover:bg-gray-300 transition-colors border text-sm" 
-                  disabled>
+                  class="w-full bg-gray-200 px-4 py-2 rounded hover:bg-gray-300 transition-colors border text-sm">
             重設所有篩選
           </button>
         </div>
@@ -318,6 +255,17 @@
             <div class="flex justify-between items-center mb-3">
               <h4 class="text-lg font-semibold text-gray-800">結果列表</h4>
               <div class="flex items-center gap-4">
+                <!-- 簡詳目切換按鈕 -->
+                <div class="flex items-center gap-2">
+                  <div class="toggle-switch-viewmode">
+                    <input type="checkbox" id="viewmode-toggle" class="toggle-checkbox">
+                    <label class="toggle-label" for="viewmode-toggle">
+                      <span class="toggle-simple">簡目</span>
+                      <span class="toggle-slider"></span>
+                      <span class="toggle-detailed">詳目</span>
+                    </label>
+                  </div>
+                </div>
                 <p class="text-sm text-gray-600">符合條件：<span id="filtered-count">0</span> 筆資料</p>
                 <div class="flex items-center gap-2">
                   <label class="text-sm text-gray-700">排序：</label>
@@ -333,10 +281,10 @@
           
           <div class="p-4">
             <div class="space-y-4" id="data-cards-container">
-              <!-- 卡片將由 JavaScript 動態生成 -->
               <div class="text-center py-8 text-gray-500">
-                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mb-4"></div>
-                <div>載入中...</div>
+                <div class="empty-icon">📋</div>
+                <div class="empty-title">等待載入資料</div>
+                <div class="empty-subtitle">系統正在初始化中...</div>
               </div>
             </div>
           </div>
@@ -359,14 +307,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/l10n/zh-tw.min.js"></script>
   
-  <!-- Custom Scripts - 重要：按正確順序載入模組 -->
-  <script src="utils.js"></script>
-  <script src="state-manager.js"></script>
-  <script src="data.js"></script>
-  <script src="search.js"></script>
-  <script src="charts.js"></script>
-  <script src="tree-filter.js"></script>
-  <script src="ui.js"></script>
-  <script src="script.js"></script>
+  <!-- 模組化入口點 -->
+  <script type="module" src="main.js"></script>
 </body>
 </html>
