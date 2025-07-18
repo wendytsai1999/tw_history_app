@@ -1,4 +1,4 @@
-// ui.js - 修正版UI管理模組
+// ui.js - UI管理模組
 
 // ========================================
 // UI管理類別
@@ -92,6 +92,49 @@ class UIManager {
         this._resetUIElements();
         
         // 觸發UI更新
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('stateChange'));
+        }, 0);
+      }
+    };
+
+    // 新增：個別移除檢索條件的函數
+    window.removeSearchCondition = (conditionIndex) => {
+      const searchData = this._stateManager.get('currentSearchData');
+      if (!searchData) return;
+
+      if (searchData.mode === 'advanced' && searchData.conditions) {
+        const newConditions = searchData.conditions.filter((_, index) => index !== conditionIndex);
+        
+        if (newConditions.length === 0) {
+          // 如果沒有剩餘條件，清除搜尋
+          this._stateManager.set('currentSearchData', null);
+          this._clearSearchInputs();
+        } else if (newConditions.length === 1) {
+          // 如果只剩一個條件，轉換為一般檢索
+          const remainingCondition = newConditions[0];
+          const newSearchData = {
+            query: remainingCondition.value,
+            normalizedQuery: this._utils ? this._utils.normalizeText(remainingCondition.value) : remainingCondition.value,
+            results: searchData.results,
+            fieldType: remainingCondition.field,
+            operator: 'AND',
+            searchTerms: [{ value: remainingCondition.value, operator: 'AND', type: 'term' }],
+            mode: 'general'
+          };
+          this._stateManager.set('currentSearchData', newSearchData);
+          
+          // 更新一般檢索輸入框
+          const generalInput = document.getElementById('general-search-input');
+          const fieldSelect = document.getElementById('general-search-field');
+          if (generalInput) generalInput.value = remainingCondition.value;
+          if (fieldSelect) fieldSelect.value = remainingCondition.field;
+        } else {
+          // 多個條件時，移除指定條件
+          const updatedSearchData = { ...searchData, conditions: newConditions };
+          this._stateManager.set('currentSearchData', updatedSearchData);
+        }
+        
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent('stateChange'));
         }, 0);
@@ -631,7 +674,7 @@ class UIManager {
   }
 
   // ========================================
-  // 私有方法 - 篩選條件顯示
+  // 私有方法 - 篩選條件顯示（修正版）
   // ========================================
 
   _generateFilterTags(filters) {
@@ -755,19 +798,23 @@ class UIManager {
         <div class="flex flex-wrap gap-2 items-center">
     `;
     
-    // 顯示搜尋欄位和關鍵字
+    // 顯示搜尋欄位和關鍵字（修正版）
     if (hasSearchData && searchData.query) {
       if (searchData.mode === 'advanced' && searchData.conditions) {
-        let logic = '';
         searchData.conditions.forEach((cond, i) => {
           const fieldName = this._getFieldDisplayName(cond.field);
-          const op = i > 0 ? ` <span class='font-bold text-blue-700'>${cond.operator}</span> ` : '';
-          logic += `${op}<span class='filter-tag search-tag'>${fieldName}: ${this._utils ? this._utils.safe(cond.value) : cond.value}</span>`;
+          const operator = i > 0 ? ` <span class='font-bold text-amber-700'>${cond.operator}</span> ` : '';
+          html += `${operator}<div class="filter-tag search-tag">
+            <span>${fieldName}: ${this._utils ? this._utils.safe(cond.value) : cond.value}</span>
+            <span class="remove-btn" onclick="removeSearchCondition(${i})" title="移除此檢索條件">×</span>
+          </div>`;
         });
-        html += `<div class="flex flex-wrap items-center">${logic}</div>`;
       } else {
         const fieldName = this._getFieldDisplayName(searchData.fieldType || 'all');
-        html += `<div class="filter-tag search-tag"><span>${fieldName}: ${this._utils ? this._utils.safe(searchData.query) : searchData.query}</span></div>`;
+        html += `<div class="filter-tag search-tag">
+          <span>${fieldName}: ${this._utils ? this._utils.safe(searchData.query) : searchData.query}</span>
+          <span class="remove-btn" onclick="clearAllActiveFilters()" title="清除檢索">×</span>
+        </div>`;
       }
     }
     
@@ -803,8 +850,10 @@ class UIManager {
         e.stopPropagation();
         const tag = e.target.closest('.filter-tag');
         const type = tag.dataset.type;
-        const value = JSON.parse(tag.dataset.value);
-        this._removeFilterTag(type, value);
+        if (type) {
+          const value = JSON.parse(tag.dataset.value);
+          this._removeFilterTag(type, value);
+        }
       });
     });
   }
