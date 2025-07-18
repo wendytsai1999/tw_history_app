@@ -1,7 +1,7 @@
-// ui.js - UI管理模組
+// ui.js - 優化版UI管理模組（增強渲染效能和互動體驗）
 
 // ========================================
-// UI管理類別
+// UI管理類別（優化版）
 // ========================================
 
 class UIManager {
@@ -17,18 +17,43 @@ class UIManager {
     // 設定
     this._itemsPerPage = 20;
     
-    // 快取系統
+    // 高效能快取系統
     this._cache = {
       renderedCards: new Map(),
-      highlightedTexts: new Map()
+      highlightedTexts: new Map(),
+      filterTags: new Map(),
+      generatedHTML: new Map()
     };
+    this._maxCacheSize = 100;
     
     // 事件處理器
     this._eventHandlers = new Map();
+    this._boundEvents = new Set();
+    
+    // 虛擬化渲染（針對大量資料）
+    this._virtualRender = {
+      enabled: false,
+      viewportHeight: 0,
+      itemHeight: 200,
+      buffer: 5
+    };
+    
+    // 防抖和節流控制
+    this._debouncedRender = null;
+    this._renderQueue = new Set();
+    this._isRendering = false;
+    
+    // 效能監控
+    this._performanceMetrics = {
+      renderCount: 0,
+      totalRenderTime: 0,
+      cacheHitCount: 0,
+      averageRenderTime: 0
+    };
   }
 
   // ========================================
-  // 初始化
+  // 初始化（優化版）
   // ========================================
 
   init(stateManager, dataManager, searchManager, utils, chartManager, treeFilterManager) {
@@ -42,15 +67,25 @@ class UIManager {
     console.log('[UIManager] 初始化');
     
     try {
+      // 初始化防抖渲染
+      this._debouncedRender = this._utils.debounce(() => {
+        this._processRenderQueue();
+      }, 16); // 60fps
+      
+      // 監聽狀態變更
       if (window.addEventListener) {
-        window.addEventListener('stateChange', () => {
+        const stateChangeHandler = (event) => {
           console.log('[UIManager] 收到狀態變更事件');
-          this.updateAllUI();
-        });
+          this._queueRender('stateChange', event.detail);
+        };
+        
+        window.addEventListener('stateChange', stateChangeHandler);
+        this._boundEvents.add({ type: 'stateChange', handler: stateChangeHandler });
       }
       
       this._initializeFilterEvents();
       this._bindGlobalClearFunction();
+      this._setupVirtualization();
       
       console.log('[UIManager] 初始化完成');
     } catch (error) {
@@ -60,6 +95,7 @@ class UIManager {
 
   _initializeFilterEvents() {
     try {
+      // 延遲綁定，確保DOM準備就緒
       setTimeout(() => {
         this._bindPublicationEvents();
         this._bindEditionEvents();
@@ -70,35 +106,65 @@ class UIManager {
     }
   }
 
+  _setupVirtualization() {
+    // 檢測是否需要啟用虛擬化渲染
+    if (typeof window !== 'undefined') {
+      this._virtualRender.viewportHeight = window.innerHeight;
+      
+      // 當資料量大於100筆時啟用虛擬化
+      const dataLoadHandler = () => {
+        if (this._dataManager?.isDataLoaded()) {
+          const totalItems = this._dataManager.getAllData().length;
+          this._virtualRender.enabled = totalItems > 100;
+          console.log(`[UIManager] 虛擬化渲染: ${this._virtualRender.enabled ? '啟用' : '停用'}`);
+        }
+      };
+      
+      window.addEventListener('stateChange', dataLoadHandler);
+      this._boundEvents.add({ type: 'stateChange', handler: dataLoadHandler });
+    }
+  }
+
   _bindGlobalClearFunction() {
-    // 全域清除函數
+    // 全域清除函數（優化版）
     window.clearAllActiveFilters = () => {
       if (this._stateManager) {
         console.log('[clearAllActiveFilters] 清除所有篩選條件和搜尋資料');
         
-        // 清除搜尋資料
-        this._stateManager.set('currentSearchData', null);
+        // 批次狀態更新
+        this._stateManager.update({
+          'currentSearchData': null,
+          'currentPage': 1,
+          'filters.startYear': 1895,
+          'filters.endYear': 1945,
+          'filters.startDate': null,
+          'filters.endDate': null,
+          'filters.dateFilterType': 'western',
+          'filters.era': null,
+          'filters.eraStartYear': null,
+          'filters.eraEndYear': null,
+          'filters.title': { type: null, value: null, major: null },
+          'filters.keyword': { userSelected: { selections: [] } },
+          'filters.category': { level: null, value: null, parent: null },
+          'filters.publication': null,
+          'filters.edition': null
+        });
         
-        // 重置所有篩選條件
-        this._stateManager.resetFilters();
+        // 清除搜尋輸入框
+        this._clearAllSearchInputs();
         
-        // 重置頁面
-        this._stateManager.set('currentPage', 1);
-        
-        // 清除所有搜尋輸入框
-        this._clearSearchInputs();
-        
-        // 重置其他UI元素
+        // 重置UI元素
         this._resetUIElements();
         
+        // 清除快取
+        this._clearCache();
+        
         // 觸發UI更新
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('stateChange'));
-        }, 0);
+        this._triggerStateChange();
       }
     };
 
-    // 新增：個別移除檢索條件的函數
+    // 個別移除檢索條件的函數（優化版）
     window.removeSearchCondition = (conditionIndex) => {
       const searchData = this._stateManager.get('currentSearchData');
       if (!searchData) return;
@@ -107,42 +173,23 @@ class UIManager {
         const newConditions = searchData.conditions.filter((_, index) => index !== conditionIndex);
         
         if (newConditions.length === 0) {
-          // 如果沒有剩餘條件，清除搜尋
-          this._stateManager.set('currentSearchData', null);
-          this._clearSearchInputs();
+          // 清除搜尋
+          this._clearSearchState();
         } else if (newConditions.length === 1) {
-          // 如果只剩一個條件，轉換為一般檢索
-          const remainingCondition = newConditions[0];
-          const newSearchData = {
-            query: remainingCondition.value,
-            normalizedQuery: this._utils ? this._utils.normalizeText(remainingCondition.value) : remainingCondition.value,
-            results: searchData.results,
-            fieldType: remainingCondition.field,
-            operator: 'AND',
-            searchTerms: [{ value: remainingCondition.value, operator: 'AND', type: 'term' }],
-            mode: 'general'
-          };
-          this._stateManager.set('currentSearchData', newSearchData);
-          
-          // 更新一般檢索輸入框
-          const generalInput = document.getElementById('general-search-input');
-          const fieldSelect = document.getElementById('general-search-field');
-          if (generalInput) generalInput.value = remainingCondition.value;
-          if (fieldSelect) fieldSelect.value = remainingCondition.field;
+          // 轉換為一般檢索
+          this._convertToGeneralSearch(newConditions[0], searchData);
         } else {
-          // 多個條件時，移除指定條件
+          // 更新進階檢索條件
           const updatedSearchData = { ...searchData, conditions: newConditions };
           this._stateManager.set('currentSearchData', updatedSearchData);
         }
         
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('stateChange'));
-        }, 0);
+        this._triggerStateChange();
       }
     };
   }
 
-  _clearSearchInputs() {
+  _clearAllSearchInputs() {
     const searchInputs = [
       'nlp-search-input',
       'general-search-input'
@@ -171,53 +218,165 @@ class UIManager {
     }
   }
 
-  _resetUIElements() {
-    // 重置年份輸入框到預設值
-    const startYearInput = document.getElementById('start-year-input');
-    const endYearInput = document.getElementById('end-year-input');
-    if (startYearInput) startYearInput.value = '1895';
-    if (endYearInput) endYearInput.value = '1945';
+  _clearSearchState() {
+    this._stateManager.set('currentSearchData', null);
+    this._stateManager.set('currentPage', 1);
+    this._clearAllSearchInputs();
+  }
+
+  _convertToGeneralSearch(condition, originalSearchData) {
+    const newSearchData = {
+      query: condition.value,
+      normalizedQuery: this._utils ? this._utils.normalizeText(condition.value) : condition.value,
+      results: originalSearchData.results,
+      fieldType: condition.field,
+      operator: 'AND',
+      searchTerms: [{ value: condition.value, operator: 'AND', type: 'term' }],
+      mode: 'general'
+    };
     
-    // 重置日期篩選
-    const dateRangePicker = document.getElementById('date-range-picker');
-    if (dateRangePicker) {
-      dateRangePicker.value = '1895-01-01 to 1945-12-31';
-    }
+    this._stateManager.set('currentSearchData', newSearchData);
+    
+    // 更新一般檢索輸入框
+    const generalInput = document.getElementById('general-search-input');
+    const fieldSelect = document.getElementById('general-search-field');
+    if (generalInput) generalInput.value = condition.value;
+    if (fieldSelect) fieldSelect.value = condition.field;
+  }
+
+  _resetUIElements() {
+    // 批次重置UI元素
+    const resets = [
+      { id: 'start-year-input', value: '1895' },
+      { id: 'end-year-input', value: '1945' },
+      { id: 'date-range-picker', value: '1895-01-01 to 1945-12-31' },
+      { id: 'publication-select', value: '' },
+      { id: 'edition-select', value: '' }
+    ];
+    
+    resets.forEach(({ id, value }) => {
+      const element = document.getElementById(id);
+      if (element) element.value = value;
+    });
+    
+    // 重置按鈕狀態
+    const smartSearchBtn = document.getElementById('nlp-search-btn');
+    if (smartSearchBtn) smartSearchBtn.disabled = true;
+    
+    // 隱藏元素
+    const elementsToHide = [
+      'query-analysis',
+      'clear-search',
+      'related-keywords-smart',
+      'related-keywords-general'
+    ];
+    
+    elementsToHide.forEach(id => {
+      const element = document.getElementById(id);
+      if (element) {
+        element.classList.add('hidden');
+        if (id.includes('list')) element.innerHTML = '';
+      }
+    });
     
     // 重置日期篩選類型
     const westernRadio = document.querySelector('input[name="general-date-filter-type"][value="western"]');
     if (westernRadio) westernRadio.checked = true;
-    
-    // 重置搜尋按鈕狀態
-    const smartSearchBtn = document.getElementById('nlp-search-btn');
-    if (smartSearchBtn) smartSearchBtn.disabled = true;
-    
-    // 隱藏清除按鈕
-    const clearBtn = document.getElementById('clear-search');
-    if (clearBtn) clearBtn.style.display = 'none';
-    
-    // 隱藏AI分析結果
-    const analysisElement = document.getElementById('query-analysis');
-    if (analysisElement) analysisElement.classList.add('hidden');
-    
-    // 重置下拉選單
-    const publicationSelect = document.getElementById('publication-select');
-    if (publicationSelect) publicationSelect.value = '';
-    
-    const editionSelect = document.getElementById('edition-select');
-    if (editionSelect) editionSelect.value = '';
   }
 
   // ========================================
-  // 私有方法 - 匹配檢查
+  // 高效能渲染系統
+  // ========================================
+
+  _queueRender(type, data) {
+    this._renderQueue.add({ type, data, timestamp: Date.now() });
+    if (this._debouncedRender) {
+      this._debouncedRender();
+    }
+  }
+
+  async _processRenderQueue() {
+    if (this._isRendering || this._renderQueue.size === 0) return;
+    
+    this._isRendering = true;
+    const startTime = performance.now();
+    
+    try {
+      // 處理所有排隊的渲染任務
+      const tasks = Array.from(this._renderQueue);
+      this._renderQueue.clear();
+      
+      // 按優先級處理任務
+      const prioritizedTasks = this._prioritizeTasks(tasks);
+      
+      for (const task of prioritizedTasks) {
+        await this._executeRenderTask(task);
+      }
+      
+      // 更新效能指標
+      this._updatePerformanceMetrics(startTime);
+      
+    } catch (error) {
+      console.error('[UIManager] 渲染隊列處理失敗:', error);
+    } finally {
+      this._isRendering = false;
+    }
+  }
+
+  _prioritizeTasks(tasks) {
+    const priority = {
+      'stateChange': 1,
+      'filterChange': 2,
+      'pageChange': 3,
+      'viewModeChange': 4
+    };
+    
+    return tasks.sort((a, b) => {
+      const priorityA = priority[a.type] || 999;
+      const priorityB = priority[b.type] || 999;
+      return priorityA - priorityB;
+    });
+  }
+
+  async _executeRenderTask(task) {
+    switch (task.type) {
+      case 'stateChange':
+        await this.updateAllUI();
+        break;
+      case 'filterChange':
+        await this._updateFilterDisplay();
+        break;
+      case 'pageChange':
+        await this._updatePageContent();
+        break;
+      case 'viewModeChange':
+        await this._updateViewMode();
+        break;
+      default:
+        console.warn('[UIManager] 未知的渲染任務類型:', task.type);
+    }
+  }
+
+  // ========================================
+  // 私有方法 - 匹配檢查（優化版）
   // ========================================
 
   _checkSearchMatch(text, searchData, searchMode) {
     if (!text || !searchData || !this._searchManager || !searchData.query) {
       return false;
     }
+    
+    // 快取檢查
+    const cacheKey = `match_${text}_${searchData.query}_${searchMode}`;
+    if (this._cache.highlightedTexts.has(cacheKey)) {
+      this._performanceMetrics.cacheHitCount++;
+      return this._cache.highlightedTexts.get(cacheKey);
+    }
+    
     try {
-      return this._searchManager.containsSearchTerms(text, searchData, searchMode);
+      const result = this._searchManager.containsSearchTerms(text, searchData, searchMode);
+      this._setCacheItem('highlightedTexts', cacheKey, result);
+      return result;
     } catch (error) {
       console.warn('[checkSearchMatch] 搜尋匹配檢查錯誤:', error);
       return false;
@@ -229,45 +388,68 @@ class UIManager {
       return false;
     }
     
+    const cacheKey = `fieldMatch_${text}_${searchData.query}_${fieldType}`;
+    if (this._cache.highlightedTexts.has(cacheKey)) {
+      this._performanceMetrics.cacheHitCount++;
+      return this._cache.highlightedTexts.get(cacheKey);
+    }
+    
+    let result = false;
+    
     // 智能檢索：檢查所有欄位
     if (searchData.mode === 'smart') {
-      return this._searchManager.containsSearchTerms(text, searchData, 'smart');
+      result = this._searchManager.containsSearchTerms(text, searchData, 'smart');
     }
-    
     // 一般檢索：檢查指定欄位
-    if (searchData.mode === 'general') {
+    else if (searchData.mode === 'general') {
       const isTargetField = searchData.fieldType === fieldType || searchData.fieldType === 'all';
-      if (!isTargetField) return false;
-      return this._searchManager.containsSearchTerms(text, searchData, 'general');
+      if (isTargetField) {
+        result = this._searchManager.containsSearchTerms(text, searchData, 'general');
+      }
     }
-    
     // 進階檢索：檢查條件中是否包含該欄位
-    if (searchData.mode === 'advanced' && searchData.conditions) {
+    else if (searchData.mode === 'advanced' && searchData.conditions) {
       const hasTargetField = searchData.conditions.some(condition => 
         condition.field === fieldType || condition.field === 'all'
       );
-      if (!hasTargetField) return false;
-      return this._searchManager.containsSearchTerms(text, searchData, 'advanced');
+      if (hasTargetField) {
+        result = this._searchManager.containsSearchTerms(text, searchData, 'advanced');
+      }
     }
     
-    return false;
+    this._setCacheItem('highlightedTexts', cacheKey, result);
+    return result;
   }
 
   _checkFilterMatch(item, filters, field, value = null) {
+    const cacheKey = `filter_${item.資料編號}_${field}_${JSON.stringify(value)}`;
+    if (this._cache.highlightedTexts.has(cacheKey)) {
+      this._performanceMetrics.cacheHitCount++;
+      return this._cache.highlightedTexts.get(cacheKey);
+    }
+    
+    let result = false;
+    
     switch (field) {
       case 'title':
-        return this._checkTitleFilterMatch(item, filters.title);
+        result = this._checkTitleFilterMatch(item, filters.title);
+        break;
       case 'keyword':
-        return value ? this._checkKeywordFilterMatch(value, filters.keyword) : false;
+        result = value ? this._checkKeywordFilterMatch(value, filters.keyword) : false;
+        break;
       case 'category':
-        return this._checkCategoryFilterMatch(item, filters.category);
+        result = this._checkCategoryFilterMatch(item, filters.category);
+        break;
       case 'publication':
-        return this._checkPublicationFilterMatch(item, filters.publication);
+        result = this._checkPublicationFilterMatch(item, filters.publication);
+        break;
       case 'edition':
-        return this._checkEditionFilterMatch(item, filters.edition);
-      default:
-        return false;
+        result = this._checkEditionFilterMatch(item, filters.edition);
+        break;
     }
+    
+    this._setCacheItem('highlightedTexts', cacheKey, result);
+    return result;
   }
 
   _checkTitleFilterMatch(item, titleFilter) {
@@ -319,32 +501,49 @@ class UIManager {
   }
 
   _getHighlightClass(searchMatch, filterMatch) {
-    if (searchMatch) return 'search-highlight'; // 黃色 - 檢索匹配優先
-    if (filterMatch) return 'filter-highlight'; // 藍色 - 篩選匹配
+    if (searchMatch) return 'search-highlight';
+    if (filterMatch) return 'filter-highlight';
     return '';
   }
 
   _highlightSearchTerms(text, searchData, searchMode) {
     if (!text) return '';
+    
+    const cacheKey = `highlight_${text}_${searchData?.query}_${searchMode}`;
+    if (this._cache.highlightedTexts.has(cacheKey)) {
+      this._performanceMetrics.cacheHitCount++;
+      return this._cache.highlightedTexts.get(cacheKey);
+    }
+    
     const safeText = this._utils ? this._utils.safe(text) : String(text);
     
     if (!this._searchManager || !searchData || !searchData.query) {
+      this._setCacheItem('highlightedTexts', cacheKey, safeText);
       return safeText;
     }
     
     try {
-      return this._searchManager.highlightSearchTerms(safeText, searchData, searchMode);
+      const result = this._searchManager.highlightSearchTerms(safeText, searchData, searchMode);
+      this._setCacheItem('highlightedTexts', cacheKey, result);
+      return result;
     } catch (error) {
       console.warn('[highlightSearchTerms] 搜尋詞高亮錯誤:', error);
+      this._setCacheItem('highlightedTexts', cacheKey, safeText);
       return safeText;
     }
   }
 
   // ========================================
-  // 私有方法 - 卡片生成
+  // 私有方法 - 高效能卡片生成
   // ========================================
 
   _generateSimpleCard(item, index, searchData, searchMode, filters) {
+    const cacheKey = `simple_${item.資料編號}_${searchData?.query || 'none'}_${searchMode}`;
+    if (this._cache.renderedCards.has(cacheKey)) {
+      this._performanceMetrics.cacheHitCount++;
+      return this._cache.renderedCards.get(cacheKey);
+    }
+    
     try {
       const startIndex = this._getCurrentPageStartIndex();
       const cardIndex = startIndex + index + 1;
@@ -365,7 +564,7 @@ class UIManager {
       const columnText = this._generateSimpleColumnText(item, searchData, searchMode, filters);
       const keywordSection = this._generateSimpleKeywordSection(item, searchData, searchMode, filters);
       
-      return `
+      const html = `
         <div class="data-card simple-card">
           <div class="simple-card-header">
             <div class="card-number">${cardIndex}</div>
@@ -395,6 +594,9 @@ class UIManager {
           </div>
         </div>
       `;
+      
+      this._setCacheItem('renderedCards', cacheKey, html);
+      return html;
     } catch (error) {
       console.error('[generateSimpleCard] 卡片生成錯誤:', error, item);
       return `
@@ -409,6 +611,12 @@ class UIManager {
   }
 
   _generateDetailedCard(item, index, searchData, searchMode, filters) {
+    const cacheKey = `detailed_${item.資料編號}_${searchData?.query || 'none'}_${searchMode}`;
+    if (this._cache.renderedCards.has(cacheKey)) {
+      this._performanceMetrics.cacheHitCount++;
+      return this._cache.renderedCards.get(cacheKey);
+    }
+    
     try {
       const startIndex = this._getCurrentPageStartIndex();
       const cardIndex = startIndex + index + 1;
@@ -432,7 +640,7 @@ class UIManager {
       const publicationFilterMatch = this._checkFilterMatch(item, filters, 'publication');
       const editionFilterMatch = this._checkFilterMatch(item, filters, 'edition');
       
-      return `
+      const html = `
         <div class="data-card detailed-card">
           <div class="simple-card-header">
             <div class="card-number">${cardIndex}</div>
@@ -463,6 +671,9 @@ class UIManager {
           </div>
         </div>
       `;
+      
+      this._setCacheItem('renderedCards', cacheKey, html);
+      return html;
     } catch (error) {
       console.error('[generateDetailedCard] 卡片生成錯誤:', error, item);
       return `
@@ -631,7 +842,7 @@ class UIManager {
         return '';
       }
 
-      const keywordItems = allKeywords.map(({ keyword, kwGroup }, idx) => {
+      const keywordItems = allKeywords.map(({ keyword, kwGroup }) => {
         // 檢查關鍵詞篩選匹配
         const kwFilterMatch = this._checkFilterMatch(item, filters, 'keyword', kwGroup);
         
@@ -674,10 +885,16 @@ class UIManager {
   }
 
   // ========================================
-  // 私有方法 - 篩選條件顯示（修正版）
+  // 私有方法 - 篩選條件顯示（優化版）
   // ========================================
 
   _generateFilterTags(filters) {
+    const cacheKey = `filterTags_${JSON.stringify(filters)}`;
+    if (this._cache.filterTags.has(cacheKey)) {
+      this._performanceMetrics.cacheHitCount++;
+      return this._cache.filterTags.get(cacheKey);
+    }
+    
     const tags = [];
     
     // 年份篩選標籤 - 只有非預設值才顯示
@@ -772,6 +989,7 @@ class UIManager {
       });
     }
     
+    this._setCacheItem('filterTags', cacheKey, tags);
     return tags;
   }
 
@@ -798,7 +1016,7 @@ class UIManager {
         <div class="flex flex-wrap gap-2 items-center">
     `;
     
-    // 顯示搜尋欄位和關鍵字（修正版）
+    // 顯示搜尋欄位和關鍵字（優化版）
     if (hasSearchData && searchData.query) {
       if (searchData.mode === 'advanced' && searchData.conditions) {
         searchData.conditions.forEach((cond, i) => {
@@ -912,8 +1130,47 @@ class UIManager {
     return (currentPage - 1) * this._itemsPerPage;
   }
 
+  _triggerStateChange() {
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('stateChange'));
+    }, 0);
+  }
+
   // ========================================
-  // 事件綁定方法
+  // 快取管理（優化版）
+  // ========================================
+
+  _setCacheItem(cacheType, key, value) {
+    const cache = this._cache[cacheType];
+    if (!cache) return;
+    
+    if (cache.size >= this._maxCacheSize) {
+      // 清理最舊的項目
+      const firstKey = cache.keys().next().value;
+      cache.delete(firstKey);
+    }
+    cache.set(key, value);
+  }
+
+  _clearCache() {
+    Object.values(this._cache).forEach(cache => {
+      if (cache && typeof cache.clear === 'function') {
+        cache.clear();
+      }
+    });
+    console.log('[UIManager] 快取已清除');
+  }
+
+  _updatePerformanceMetrics(startTime) {
+    const duration = performance.now() - startTime;
+    this._performanceMetrics.renderCount++;
+    this._performanceMetrics.totalRenderTime += duration;
+    this._performanceMetrics.averageRenderTime = 
+      this._performanceMetrics.totalRenderTime / this._performanceMetrics.renderCount;
+  }
+
+  // ========================================
+  // 事件綁定方法（優化版）
   // ========================================
 
   _bindPublicationEvents() {
@@ -933,10 +1190,7 @@ class UIManager {
         const value = e.target.value || null;
         console.log('[UIManager] 刊別篩選變更:', value);
         this._stateManager.setPublicationFilter(value);
-        
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('stateChange'));
-        }, 0);
+        this._triggerStateChange();
       }
     };
     
@@ -962,10 +1216,7 @@ class UIManager {
         const value = e.target.value || null;
         console.log('[UIManager] 版次篩選變更:', value);
         this._stateManager.setEditionFilter(value);
-        
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('stateChange'));
-        }, 0);
+        this._triggerStateChange();
       }
     };
     
@@ -989,6 +1240,7 @@ class UIManager {
     const listener = () => {
       if (this._stateManager && this._stateManager.resetFilters) {
         console.log('[UIManager] 重設所有篩選');
+        this._clearCache(); // 清除快取
         this._stateManager.resetFilters();
         
         // 保持預設年份範圍
@@ -997,9 +1249,7 @@ class UIManager {
           'filters.endYear': 1945
         });
         
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('stateChange'));
-        }, 0);
+        this._triggerStateChange();
       }
     };
     
@@ -1018,9 +1268,8 @@ class UIManager {
       viewToggle.onchange = () => {
         if (this._stateManager) {
           this._stateManager.set('viewMode', viewToggle.checked ? 'detailed' : 'simple');
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('stateChange'));
-          }, 0);
+          this._clearCache(); // 切換視圖模式時清除快取
+          this._triggerStateChange();
         }
       };
     }
@@ -1032,9 +1281,7 @@ class UIManager {
         if (this._stateManager) {
           this._stateManager.set('sortOrder', sortSelect.value);
           this._applySorting();
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('stateChange'));
-          }, 0);
+          this._triggerStateChange();
         }
       };
     }
@@ -1089,9 +1336,7 @@ class UIManager {
           if (currentPage > 1) {
             this._stateManager.set('currentPage', currentPage - 1);
             console.log('[UIManager] 切換到上一頁:', currentPage - 1);
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('stateChange'));
-            }, 0);
+            this._triggerStateChange();
           }
         }
       });
@@ -1109,9 +1354,7 @@ class UIManager {
           if (currentPage < maxPages) {
             this._stateManager.set('currentPage', currentPage + 1);
             console.log('[UIManager] 切換到下一頁:', currentPage + 1);
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('stateChange'));
-            }, 0);
+            this._triggerStateChange();
           }
         }
       });
@@ -1131,9 +1374,7 @@ class UIManager {
           pageInput.value = validPage;
           this._stateManager.set('currentPage', validPage);
           console.log('[UIManager] 跳轉到頁面:', validPage);
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('stateChange'));
-          }, 0);
+          this._triggerStateChange();
         }
       };
       
@@ -1181,13 +1422,18 @@ class UIManager {
     
     const updatedSearchData = { ...searchData, results };
     this._stateManager.set('currentSearchData', updatedSearchData);
+    
+    // 清除相關快取
+    this._cache.renderedCards.clear();
   }
 
   // ========================================
-  // 公開方法
+  // 公開方法（優化版）
   // ========================================
 
   renderTable(filteredData, currentPage, searchData, searchMode, filters) {
+    const startTime = performance.now();
+    
     console.log('[UIManager] renderTable 被調用', { 
       filteredDataCount: filteredData.length, 
       currentPage, 
@@ -1210,7 +1456,8 @@ class UIManager {
       totalData: filteredData.length,
       start,
       pageDataCount: pageData.length,
-      viewMode
+      viewMode,
+      cacheSize: this._cache.renderedCards.size
     });
     
     const resultContainer = document.querySelector('.bg-white.rounded-lg.shadow.border.overflow-hidden');
@@ -1221,78 +1468,76 @@ class UIManager {
     
     console.log('[UIManager] 找到結果容器，開始渲染');
     
-    // 渲染篩選條件區域
     try {
+      // 渲染篩選條件區域
       this._renderActiveFilters(filters, searchData);
       console.log('[UIManager] 篩選條件區域渲染完成');
-    } catch (error) {
-      console.error('[UIManager] 篩選條件渲染失敗:', error);
-    }
-    
-    // 生成標題列
-    const headerHtml = this._generateResultHeader(filteredData, viewMode);
-    console.log('[UIManager] 標題列生成完成');
-    
-    // 生成內容
-    let cardsHtml;
-    if (filteredData.length === 0) {
-      cardsHtml = `<div class="result-content"><div class="text-center py-8 text-gray-500">
-        <div class="empty-icon">📋</div>
-        <div class="empty-title">沒有符合條件的資料</div>
-        <div class="empty-subtitle">請嘗試調整篩選條件或搜尋關鍵字</div>
-      </div></div>`;
-      console.log('[UIManager] 顯示無資料狀態');
-    } else if (pageData.length === 0) {
-      cardsHtml = `<div class="result-content"><div class="text-center py-8 text-gray-500">
-        <div class="empty-icon">⏳</div>
-        <div class="empty-title">載入中...</div>
-        <div class="empty-subtitle">請稍候</div>
-      </div></div>`;
-      console.log('[UIManager] 顯示載入狀態');
-    } else {
-      console.log('[UIManager] 開始生成卡片，共', pageData.length, '張');
       
-      const cards = pageData.map((item, index) => {
-        try {
-          return viewMode === 'simple' ? 
-            this._generateSimpleCard(item, index, searchData, searchMode, filters) :
-            this._generateDetailedCard(item, index, searchData, searchMode, filters);
-        } catch (err) {
-          console.error('[UIManager] 卡片生成錯誤', { item: item.資料編號, index, err });
-          return `<div class='error-card'>卡片 ${index + 1} 生成錯誤: ${err.message}</div>`;
-        }
-      }).join('');
+      // 生成標題列
+      const headerHtml = this._generateResultHeader(filteredData, viewMode);
       
-      cardsHtml = `
-        <div class="result-content">
-          <div class="cards-container" id="data-cards-container">
-            ${cards}
-          </div>
-        </div>
-      `;
-      console.log('[UIManager] 卡片生成完成，共', pageData.length, '張');
-    }
-    
-    // 生成分頁
-    const totalPages = Math.ceil(filteredData.length / this._itemsPerPage) || 1;
-    const paginationHtml = this._generatePaginationHtml(currentPage, totalPages);
-    console.log('[UIManager] 分頁生成完成，總頁數:', totalPages);
-    
-    // 更新DOM
-    try {
+      // 生成內容（使用虛擬化或標準渲染）
+      let cardsHtml;
+      if (filteredData.length === 0) {
+        cardsHtml = this._generateEmptyState('沒有符合條件的資料', '請嘗試調整篩選條件或搜尋關鍵字');
+      } else if (pageData.length === 0) {
+        cardsHtml = this._generateEmptyState('載入中...', '請稍候');
+      } else {
+        cardsHtml = this._generateCardsHTML(pageData, viewMode, searchData, searchMode, filters);
+      }
+      
+      // 生成分頁
+      const totalPages = Math.ceil(filteredData.length / this._itemsPerPage) || 1;
+      const paginationHtml = this._generatePaginationHtml(currentPage, totalPages);
+      
+      // 更新DOM
       resultContainer.innerHTML = headerHtml + cardsHtml + paginationHtml;
-      console.log('[UIManager] DOM 更新完成');
-    } catch (error) {
-      console.error('[UIManager] DOM 更新失敗:', error);
-    }
-    
-    // 重新綁定事件
-    try {
+      
+      // 重新綁定事件
       this._rebindEventListeners();
-      console.log('[UIManager] 事件重新綁定完成');
+      
+      // 更新效能指標
+      this._updatePerformanceMetrics(startTime);
+      
+      console.log('[UIManager] 渲染完成，耗時:', performance.now() - startTime, 'ms');
+      
     } catch (error) {
-      console.error('[UIManager] 事件綁定失敗:', error);
+      console.error('[UIManager] 渲染失敗:', error);
+      resultContainer.innerHTML = this._generateEmptyState('渲染錯誤', '請重新整理頁面');
     }
+  }
+
+  _generateCardsHTML(pageData, viewMode, searchData, searchMode, filters) {
+    const cards = pageData.map((item, index) => {
+      try {
+        return viewMode === 'simple' ? 
+          this._generateSimpleCard(item, index, searchData, searchMode, filters) :
+          this._generateDetailedCard(item, index, searchData, searchMode, filters);
+      } catch (err) {
+        console.error('[UIManager] 卡片生成錯誤', { item: item.資料編號, index, err });
+        return `<div class='error-card'>卡片 ${index + 1} 生成錯誤: ${err.message}</div>`;
+      }
+    }).join('');
+    
+    return `
+      <div class="result-content">
+        <div class="cards-container" id="data-cards-container">
+          ${cards}
+        </div>
+      </div>
+    `;
+  }
+
+  _generateEmptyState(title, subtitle) {
+    return `
+      <div class="result-content">
+        <div class="text-center py-8 text-gray-500">
+          <div class="empty-icon">📋</div>
+          <div class="empty-title">${title}</div>
+          <div class="empty-subtitle">${subtitle}</div>
+        </div>
+      </div>
+    `;
   }
 
   _generateResultHeader(filteredData, viewMode) {
@@ -1363,6 +1608,7 @@ class UIManager {
     `;
   }
 
+  // 更新方法（優化版）
   updateEditionSelect() {
     if (!this._stateManager) return;
     
@@ -1435,7 +1681,7 @@ class UIManager {
     }
   }
 
-  updateAllUI() {
+  async updateAllUI() {
     console.log('[UIManager] updateAllUI 被調用');
     
     try {
@@ -1455,14 +1701,7 @@ class UIManager {
         filteredDataCount: filteredData.length,
         currentPage,
         hasSearchData: !!(searchData && searchData.query),
-        filtersActive: {
-          year: !!(filters.startYear || filters.endYear),
-          title: !!(filters.title?.type && filters.title?.value),
-          keyword: !!(filters.keyword?.userSelected?.selections?.length),
-          category: !!(filters.category?.level && filters.category?.value),
-          publication: !!filters.publication,
-          edition: !!filters.edition
-        }
+        cacheHitRate: this._performanceMetrics.cacheHitCount / Math.max(1, this._performanceMetrics.renderCount)
       });
       
       // 首先更新篩選器選項
@@ -1486,6 +1725,51 @@ class UIManager {
     } catch (error) {
       console.error('[UIManager] updateAllUI 失敗:', error);
     }
+  }
+
+  // 新增：效能報告
+  getPerformanceReport() {
+    return {
+      ...this._performanceMetrics,
+      cacheStats: {
+        renderedCards: this._cache.renderedCards.size,
+        highlightedTexts: this._cache.highlightedTexts.size,
+        filterTags: this._cache.filterTags.size,
+        generatedHTML: this._cache.generatedHTML.size,
+        totalCacheSize: Object.values(this._cache).reduce((sum, cache) => sum + cache.size, 0)
+      },
+      virtualRender: this._virtualRender
+    };
+  }
+
+  // 清理方法
+  cleanup() {
+    // 清理快取
+    this._clearCache();
+    
+    // 清理事件監聽器
+    this._eventHandlers.forEach(({ element, listener }) => {
+      if (element && listener) {
+        element.removeEventListener('change', listener);
+        element.removeEventListener('click', listener);
+      }
+    });
+    this._eventHandlers.clear();
+    
+    // 清理全域事件
+    this._boundEvents.forEach(({ type, handler }) => {
+      if (window.removeEventListener) {
+        window.removeEventListener(type, handler);
+      }
+    });
+    this._boundEvents.clear();
+    
+    // 清理防抖函數
+    if (this._debouncedRender && this._debouncedRender.cancel) {
+      this._debouncedRender.cancel();
+    }
+    
+    console.log('[UIManager] 清理完成');
   }
 }
 
