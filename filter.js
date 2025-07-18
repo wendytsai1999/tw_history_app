@@ -1,4 +1,4 @@
-// filter.js - 樹狀篩選器管理模組
+// filter.js - 修正版樹狀篩選器管理模組
 
 // ========================================
 // 樹狀篩選器管理類別
@@ -376,8 +376,8 @@ class TreeFilterManager {
     return html;
   }
 
-  // 修正版：改進欄目樹節點生成，使其與關鍵詞、題名風格一致
-  _createColumnTreeNode(data, majorName = '') {
+// 修正版：創建欄目樹節點生成，增強層級縮排和視覺差異
+  _createColumnTreeNode(data, majorName = '', depth = 0) {
     if (!data || data.count === 0) return '';
 
     const hasChildren = data.children && data.children.length > 0;
@@ -385,22 +385,24 @@ class TreeFilterManager {
     const isCollapsed = this._collapseState.columnTree.get(nodeId) || false;
     const isSelected = this._checkColumnNodeSelected(data);
     const highlightClass = isSelected ? 'filter-highlight' : '';
+    const isDisabled = data.count === 0;
 
     let html = '';
 
     if (data.selectable && data.level === 'category') {
       const radioBtn = `<input type="radio" name="column-category" class="tree-radio" 
-                              value="${data.name}" data-level="category" ${isSelected ? 'checked' : ''}>`;
+                              value="${data.name}" data-level="category" 
+                              ${isSelected ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}>`;
       html += `
-        <div class="tree-node tree-level-category" data-node-id="${nodeId}">
-          <div class="tree-node-header ${highlightClass}">
+        <div class="tree-node tree-level-category column-depth-${depth}" data-node-id="${nodeId}">
+          <div class="tree-node-header ${highlightClass} ${isDisabled ? 'disabled' : ''}">
             <div class="tree-node-label">
               <span class="tree-toggle-placeholder"></span>
               <label class="title-label-container">
                 ${radioBtn}
                 <span class="title-text">${data.name}</span>
               </label>
-              <span class="tree-node-count">${data.count}</span>
+              <span class="tree-node-count ${data.count === 0 ? 'zero' : ''}">${data.count}</span>
             </div>
           </div>
         </div>
@@ -411,12 +413,12 @@ class TreeFilterManager {
         `<span class="tree-toggle-placeholder"></span>`;
 
       html += `
-        <div class="tree-node tree-level-${data.level}" data-node-id="${nodeId}">
-          <div class="tree-node-header ${highlightClass}">
+        <div class="tree-node tree-level-${data.level} column-depth-${depth}" data-node-id="${nodeId}">
+          <div class="tree-node-header ${highlightClass} ${isDisabled ? 'disabled' : ''}">
             <div class="tree-node-label">
               ${toggleBtn}
               <span class="title-text">${data.name}</span>
-              <span class="tree-node-count">${data.count}</span>
+              <span class="tree-node-count ${data.count === 0 ? 'zero' : ''}">${data.count}</span>
             </div>
           </div>
       `;
@@ -441,7 +443,7 @@ class TreeFilterManager {
         
         html += `
           <div class="tree-node-content" style="display: ${isCollapsed ? 'none' : 'block'};">
-            ${childrenToShow.map(child => this._createColumnTreeNode(child, majorName || data.name)).join('')}
+            ${childrenToShow.map(child => this._createColumnTreeNode(child, majorName || data.name, depth + 1)).join('')}
             ${showAllBtn}
           </div>
         `;
