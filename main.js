@@ -1,4 +1,4 @@
-// main.js - 修正版主控制器
+// main.js - 主控制器
 
 import { Utils } from './utils.js';
 import { dataManager } from './data.js';
