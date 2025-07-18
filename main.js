@@ -1,4 +1,4 @@
-// main.js - 主控制器
+// main.js - 修正版主控制器（優化檢索模式切換和高度相關詞互動）
 
 import { Utils } from './utils.js';
 import { dataManager } from './data.js';
@@ -30,10 +30,16 @@ class ApplicationController {
       initEndTime: 0,
       dataLoadTime: 0
     };
+
+    // 快取系統 - 新增
+    this._cache = {
+      modeState: new Map(),
+      relatedKeywords: new Map()
+    };
   }
 
   // ========================================
-  // 初始化流程
+  // 初始化流程（優化版）
   // ========================================
 
   async initialize() {
@@ -85,7 +91,7 @@ class ApplicationController {
   }
 
   // ========================================
-  // 私有方法 - 初始化相關
+  // 私有方法 - 初始化相關（優化版）
   // ========================================
 
   async _checkExternalDependencies() {
@@ -270,7 +276,7 @@ class ApplicationController {
   }
 
   // ========================================
-  // 私有方法 - 事件處理相關
+  // 私有方法 - 事件處理相關（優化版）
   // ========================================
 
   _initializeSearchModeTabs() {
@@ -307,11 +313,7 @@ class ApplicationController {
         
         // 清除搜尋狀態和AI分析結果
         if (!hasValue) {
-          this._modules.stateManager.set('currentSearchData', null);
-          const analysisElement = document.getElementById('query-analysis');
-          if (analysisElement) {
-            analysisElement.classList.add('hidden');
-          }
+          this._clearSearchResults();
         }
         
         // 顯示/隱藏清除按鈕
@@ -326,22 +328,7 @@ class ApplicationController {
     // 清除搜尋按鈕
     if (clearBtn && searchInput) {
       clearBtn.addEventListener('click', () => {
-        searchInput.value = '';
-        searchBtn.disabled = true;
-        clearBtn.style.display = 'none';
-        
-        // 清除搜尋狀態
-        this._modules.stateManager.set('currentSearchData', null);
-        this._modules.stateManager.set('currentPage', 1);
-        
-        // 隱藏分析結果
-        const analysisElement = document.getElementById('query-analysis');
-        if (analysisElement) {
-          analysisElement.classList.add('hidden');
-        }
-        
-        // 觸發 UI 更新
-        this._triggerStateChange();
+        this._clearSearchInputAndResults();
       });
     }
     
@@ -359,13 +346,8 @@ class ApplicationController {
             clearBtn.style.display = 'flex';
           }
           
-          // 只清除之前的搜尋結果和AI分析
-          this._modules.stateManager.set('currentSearchData', null);
-          
-          const analysisElement = document.getElementById('query-analysis');
-          if (analysisElement) {
-            analysisElement.classList.add('hidden');
-          }
+          // 清除之前的搜尋結果
+          this._clearSearchResults();
         }
       });
     });
@@ -464,11 +446,14 @@ class ApplicationController {
   }
 
   // ========================================
-  // 私有方法 - 模式切換相關
+  // 私有方法 - 模式切換相關（優化版）
   // ========================================
 
   _switchSearchMode(mode) {
     console.log('[Main] 切換檢索模式到:', mode);
+    
+    // 快取當前模式狀態
+    this._saveModeState();
     
     // 取得所有面板
     const smartPanel = document.getElementById('smart-search-panel');
@@ -513,12 +498,26 @@ class ApplicationController {
         break;
     }
 
-    // 切換模式時重置狀態
+    // 切換模式時重置狀態（優化版）
     this._resetSearchState(mode);
+  }
+
+  _saveModeState() {
+    const currentMode = this._modules.stateManager.get('searchMode');
+    if (!currentMode) return;
+
+    const state = {
+      searchData: this._modules.stateManager.get('currentSearchData'),
+      filters: this._modules.stateManager.get('filters'),
+      page: this._modules.stateManager.get('currentPage')
+    };
+    
+    this._cache.modeState.set(currentMode, state);
   }
 
   _resetSearchState(mode) {
     if (this._modules.stateManager) {
+      // 清除搜尋資料和篩選條件
       this._modules.stateManager.resetFilters();
       this._modules.stateManager.set('currentSearchData', null);
       this._modules.stateManager.set('currentPage', 1);
@@ -532,20 +531,98 @@ class ApplicationController {
     }
     
     // 清空所有檢索 input 欄位
-    this._clearAllInputs();
+    this._clearAllSearchInputs();
+    
+    // 清空目前篩選條件區塊
+    this._clearActiveFilters();
+    
+    // 清空高度相關詞區塊
+    this._clearRelatedKeywords();
     
     // 重置UI元素
     this._resetUIElements();
-    
+
+    // 強制關閉進階檢索 toggle 並隱藏條件
+    this._resetAdvancedSearch();
+
     // 觸發UI更新（除非是瀏覽模式）
     if (mode !== 'browse') {
       this._triggerStateChange();
     }
   }
 
-  _clearAllInputs() {
-    const allInputs = document.querySelectorAll('.search-input, #nlp-search-input, #general-search-input');
-    allInputs.forEach(input => input.value = '');
+  _clearAllSearchInputs() {
+    // 清空智能檢索輸入框
+    const smartInput = document.getElementById('nlp-search-input');
+    if (smartInput) smartInput.value = '';
+    
+    // 清空一般檢索輸入框
+    const generalInput = document.getElementById('general-search-input');
+    if (generalInput) generalInput.value = '';
+    
+    // 清空進階檢索條件
+    const advancedConditions = document.getElementById('advanced-conditions');
+    if (advancedConditions) {
+      advancedConditions.innerHTML = '';
+      advancedConditions.style.display = 'none';
+    }
+    
+    console.log('[Main] 所有檢索輸入框已清空');
+  }
+
+  _clearActiveFilters() {
+    // 隱藏目前篩選條件區塊
+    const activeFilters = document.getElementById('active-filters');
+    if (activeFilters) {
+      activeFilters.classList.add('hidden');
+      activeFilters.innerHTML = '';
+    }
+    
+    console.log('[Main] 目前篩選條件區塊已清空');
+  }
+
+  _clearRelatedKeywords() {
+    // 清空智能檢索的高度相關詞
+    const relatedSmart = document.getElementById('related-keywords-smart');
+    const relatedSmartList = document.getElementById('related-keywords-list-smart');
+    if (relatedSmart) relatedSmart.classList.add('hidden');
+    if (relatedSmartList) relatedSmartList.innerHTML = '';
+    
+    // 清空一般檢索的高度相關詞
+    const relatedGeneral = document.getElementById('related-keywords-general');
+    const relatedGeneralList = document.getElementById('related-keywords-list-general');
+    if (relatedGeneral) relatedGeneral.classList.add('hidden');
+    if (relatedGeneralList) relatedGeneralList.innerHTML = '';
+    
+    console.log('[Main] 高度相關詞區塊已清空');
+  }
+
+  _clearSearchResults() {
+    this._modules.stateManager.set('currentSearchData', null);
+    
+    const analysisElement = document.getElementById('query-analysis');
+    if (analysisElement) {
+      analysisElement.classList.add('hidden');
+    }
+  }
+
+  _clearSearchInputAndResults() {
+    const smartInput = document.getElementById('nlp-search-input');
+    const smartBtn = document.getElementById('nlp-search-btn');
+    const clearBtn = document.getElementById('clear-search');
+    
+    if (smartInput) smartInput.value = '';
+    if (smartBtn) smartBtn.disabled = true;
+    if (clearBtn) clearBtn.style.display = 'none';
+    
+    this._clearSearchResults();
+    this._clearRelatedKeywords();
+    
+    // 重置頁面
+    this._modules.stateManager.set('currentPage', 1);
+    
+    // 觸發 UI 更新
+    this._triggerStateChange();
   }
 
   _resetUIElements() {
@@ -567,8 +644,28 @@ class ApplicationController {
       clearBtn.style.display = 'none';
     }
     
-    // 重置進階檢索狀態
-    this._resetAdvancedSearch();
+    // 重置年份輸入框到預設值
+    const startYearInput = document.getElementById('start-year-input');
+    const endYearInput = document.getElementById('end-year-input');
+    if (startYearInput) startYearInput.value = '1895';
+    if (endYearInput) endYearInput.value = '1945';
+    
+    // 重置日期篩選
+    const dateRangePicker = document.getElementById('date-range-picker');
+    if (dateRangePicker) {
+      dateRangePicker.value = '1895-01-01 to 1945-12-31';
+    }
+    
+    // 重置日期篩選類型
+    const westernRadio = document.querySelector('input[name="general-date-filter-type"][value="western"]');
+    if (westernRadio) westernRadio.checked = true;
+    
+    // 重置下拉選單
+    const publicationSelect = document.getElementById('publication-select');
+    if (publicationSelect) publicationSelect.value = '';
+    
+    const editionSelect = document.getElementById('edition-select');
+    if (editionSelect) editionSelect.value = '';
   }
 
   _resetAdvancedSearch() {
@@ -589,7 +686,7 @@ class ApplicationController {
   }
 
   // ========================================
-  // 私有方法 - 搜尋處理相關（修正版）
+  // 私有方法 - 搜尋處理相關（優化版）
   // ========================================
 
   async _handleSmartSearch() {
@@ -602,7 +699,8 @@ class ApplicationController {
       // 修正：如果檢索框為空，回到預設狀態
       if (!query) {
         console.log('[Main] 檢索框為空，回到預設狀態');
-        this._modules.stateManager.set('currentSearchData', null);
+        this._clearSearchResults();
+        this._clearRelatedKeywords();
         this._modules.stateManager.set('currentPage', 1);
         this._triggerStateChange();
         return;
@@ -649,6 +747,9 @@ class ApplicationController {
           // 顯示分析結果
           this._showSmartSearchAnalysis(searchResult, analysisElement, logicDisplay);
           
+          // 計算並顯示相關詞
+          this._showRelatedKeywords(query, 'smart');
+          
           // 觸發 UI 更新
           this._triggerStateChange();
         }
@@ -669,18 +770,17 @@ class ApplicationController {
 
   async _handleGeneralSearch() {
     console.log('[Main] 處理一般檢索');
-    
     try {
       const input = document.getElementById('general-search-input');
       const fieldSelect = document.getElementById('general-search-field');
       const advancedToggle = document.getElementById('advanced-search-toggle');
-      
       const query = input?.value?.trim();
       
       // 修正：如果檢索框為空，回到預設狀態
       if (!query && (!advancedToggle?.checked || !this._hasAdvancedConditions())) {
         console.log('[Main] 檢索框為空，回到預設狀態');
-        this._modules.stateManager.set('currentSearchData', null);
+        this._clearSearchResults();
+        this._clearRelatedKeywords();
         this._modules.stateManager.set('currentPage', 1);
         this._triggerStateChange();
         return;
@@ -712,8 +812,12 @@ class ApplicationController {
       // 檢查是否使用進階檢索
       if (advancedToggle && advancedToggle.checked) {
         searchResult = this._performAdvancedSearch(input, fieldSelect);
+        // 顯示高度相關詞（進階模式）
+        this._showRelatedKeywords(query, 'advanced');
       } else {
         searchResult = this._performGeneralSearch(input, fieldSelect);
+        // 顯示高度相關詞（一般模式）
+        this._showRelatedKeywords(query, 'general');
       }
       
       console.log('[Main] 檢索完成，結果筆數:', searchResult.results.length);
@@ -726,7 +830,6 @@ class ApplicationController {
       
       // 觸發 UI 更新
       this._triggerStateChange();
-      
     } catch (error) {
       console.error('[Main] 一般檢索處理失敗:', error);
       alert('檢索失敗，請稍後再試');
@@ -900,7 +1003,7 @@ class ApplicationController {
   }
 
   // ========================================
-  // 私有方法 - 工具函數（修正版）
+  // 私有方法 - 工具函數（優化版）
   // ========================================
 
   _getDateFilters() {
@@ -1036,6 +1139,159 @@ class ApplicationController {
   }
 
   // ========================================
+  // 高度相關詞功能（優化版）
+  // ========================================
+
+  _showRelatedKeywords(query, mode = 'general') {
+    // 快取檢查
+    const cacheKey = `${query}-${mode}`;
+    if (this._cache.relatedKeywords.has(cacheKey)) {
+      const cachedKeywords = this._cache.relatedKeywords.get(cacheKey);
+      this._renderRelatedKeywords(cachedKeywords, mode);
+      return;
+    }
+
+    // 取得相關詞
+    const relatedKeywords = this._modules.searchManager.calculateRelatedKeywords(query, 5);
+    
+    // 快取結果
+    this._cache.relatedKeywords.set(cacheKey, relatedKeywords);
+    
+    // 渲染相關詞
+    this._renderRelatedKeywords(relatedKeywords, mode);
+  }
+
+  _renderRelatedKeywords(relatedKeywords, mode) {
+    const sectionId = mode === 'smart' ? 'related-keywords-smart' : 'related-keywords-general';
+    const listId = mode === 'smart' ? 'related-keywords-list-smart' : 'related-keywords-list-general';
+    const section = document.getElementById(sectionId);
+    const list = document.getElementById(listId);
+
+    if (!section || !list) {
+      return;
+    }
+
+    if (!relatedKeywords || relatedKeywords.length === 0) {
+      section.classList.add('hidden');
+      list.innerHTML = '';
+      return;
+    }
+
+    // 產生標籤 HTML，並加上 data-keyword 屬性
+    list.innerHTML = relatedKeywords.map(item => {
+      const categoryPath = [item.category.major, item.category.mid, item.category.minor]
+        .filter(Boolean).join(' / ');
+      return `
+        <span class="related-keyword-tag" title="${categoryPath}" data-keyword="${item.keyword}" data-mode="${mode}">
+          ${item.keyword}
+          <span class="related-keyword-count">${item.count}</span>
+        </span>
+      `;
+    }).join('');
+
+    section.classList.remove('hidden');
+
+    // 綁定點擊事件（優化版）
+    this._bindRelatedKeywordEvents(list, mode);
+  }
+
+  _bindRelatedKeywordEvents(list, mode) {
+    Array.from(list.querySelectorAll('.related-keyword-tag')).forEach(tag => {
+      tag.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const keyword = tag.getAttribute('data-keyword');
+        const tagMode = tag.getAttribute('data-mode');
+        
+        console.log('[Main] 高度相關詞點擊:', keyword, '模式:', tagMode);
+        
+        if (tagMode === 'general') {
+          // 一般檢索：直接覆蓋 input
+          this._handleGeneralKeywordClick(keyword);
+        } else if (tagMode === 'advanced') {
+          // 進階檢索：新增一行條件
+          this._handleAdvancedKeywordClick(keyword);
+        } else if (tagMode === 'smart') {
+          // 智能檢索：覆蓋輸入框
+          this._handleSmartKeywordClick(keyword);
+        }
+      };
+    });
+  }
+
+  _handleGeneralKeywordClick(keyword) {
+    const input = document.getElementById('general-search-input');
+    if (input) {
+      input.value = keyword;
+      input.focus();
+      console.log('[Main] 一般檢索輸入框已更新:', keyword);
+    }
+  }
+
+  _handleAdvancedKeywordClick(keyword) {
+    // 確保進階檢索模式開啟
+    const advancedToggle = document.getElementById('advanced-search-toggle');
+    if (advancedToggle && !advancedToggle.checked) {
+      advancedToggle.checked = true;
+      // 觸發 change 事件
+      advancedToggle.dispatchEvent(new Event('change'));
+    }
+    
+    // 新增進階條件行
+    const advancedConditions = document.getElementById('advanced-conditions');
+    if (advancedConditions) {
+      const conditionRow = document.createElement('div');
+      conditionRow.className = 'advanced-condition-row';
+      conditionRow.innerHTML = `
+        <select class="operator-select">
+          <option value="AND">AND (且)</option>
+          <option value="OR">OR (或)</option>
+          <option value="NOT">NOT (非)</option>
+        </select>
+        <select class="search-field-select">
+          <option value="all">不限欄位</option>
+          <option value="title">題名</option>
+          <option value="author">作者</option>
+          <option value="category">分類</option>
+          <option value="keyword" selected>關鍵詞</option>
+        </select>
+        <input type="text" class="search-input" value="${keyword}" placeholder="請輸入檢索詞">
+        <button class="delete-condition-btn" onclick="removeAdvancedCondition(this)" title="刪除此條件">×</button>
+      `;
+      advancedConditions.appendChild(conditionRow);
+      
+      // 綁定 enter 事件
+      const newInput = conditionRow.querySelector('.search-input');
+      if (newInput) {
+        newInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') {
+            this._handleGeneralSearch();
+          }
+        });
+      }
+      
+      console.log('[Main] 進階檢索條件已新增:', keyword);
+    }
+  }
+
+  _handleSmartKeywordClick(keyword) {
+    const input = document.getElementById('nlp-search-input');
+    const btn = document.getElementById('nlp-search-btn');
+    const clearBtn = document.getElementById('clear-search');
+    
+    if (input) {
+      input.value = keyword;
+      input.focus();
+      
+      if (btn) btn.disabled = false;
+      if (clearBtn) clearBtn.style.display = 'flex';
+      
+      console.log('[Main] 智能檢索輸入框已更新:', keyword);
+    }
+  }
+
+  // ========================================
   // 公開方法
   // ========================================
 
@@ -1055,6 +1311,21 @@ class ApplicationController {
     return this._isDataLoaded;
   }
 
+  // 新增：清除快取方法
+  clearCache() {
+    this._cache.modeState.clear();
+    this._cache.relatedKeywords.clear();
+    console.log('[Main] 快取已清除');
+  }
+
+  // 新增：取得快取統計
+  getCacheStats() {
+    return {
+      modeState: this._cache.modeState.size,
+      relatedKeywords: this._cache.relatedKeywords.size
+    };
+  }
+
   cleanup() {
     // 清理事件監聽器
     if (typeof window !== 'undefined') {
@@ -1062,6 +1333,9 @@ class ApplicationController {
         window.removeEventListener(type, handler);
       });
     }
+    
+    // 清理快取
+    this.clearCache();
     
     // 清理模組
     Object.values(this._modules).forEach(module => {
