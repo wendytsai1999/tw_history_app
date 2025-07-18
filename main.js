@@ -589,7 +589,7 @@ class ApplicationController {
   }
 
   // ========================================
-  // 私有方法 - 搜尋處理相關
+  // 私有方法 - 搜尋處理相關（修正版）
   // ========================================
 
   async _handleSmartSearch() {
@@ -599,8 +599,12 @@ class ApplicationController {
       const input = document.getElementById('nlp-search-input');
       const query = input?.value?.trim();
       
+      // 修正：如果檢索框為空，回到預設狀態
       if (!query) {
-        alert('請輸入搜尋關鍵字');
+        console.log('[Main] 檢索框為空，回到預設狀態');
+        this._modules.stateManager.set('currentSearchData', null);
+        this._modules.stateManager.set('currentPage', 1);
+        this._triggerStateChange();
         return;
       }
       
@@ -671,6 +675,17 @@ class ApplicationController {
       const fieldSelect = document.getElementById('general-search-field');
       const advancedToggle = document.getElementById('advanced-search-toggle');
       
+      const query = input?.value?.trim();
+      
+      // 修正：如果檢索框為空，回到預設狀態
+      if (!query && (!advancedToggle?.checked || !this._hasAdvancedConditions())) {
+        console.log('[Main] 檢索框為空，回到預設狀態');
+        this._modules.stateManager.set('currentSearchData', null);
+        this._modules.stateManager.set('currentPage', 1);
+        this._triggerStateChange();
+        return;
+      }
+      
       if (!this._modules.searchManager) {
         console.error('[Main] SearchManager 不可用');
         return;
@@ -718,12 +733,22 @@ class ApplicationController {
     }
   }
 
+  _hasAdvancedConditions() {
+    const advancedConditions = document.getElementById('advanced-conditions');
+    if (!advancedConditions) return false;
+    
+    const rows = advancedConditions.querySelectorAll('.advanced-condition-row');
+    return Array.from(rows).some(row => {
+      const input = row.querySelector('.search-input');
+      return input && input.value.trim();
+    });
+  }
+
   _performGeneralSearch(input, fieldSelect) {
     const query = input?.value?.trim();
     const field = fieldSelect?.value || 'all';
     
     if (!query) {
-      alert('請輸入檢索詞');
       throw new Error('請輸入檢索詞');
     }
     
@@ -765,7 +790,6 @@ class ApplicationController {
     }
     
     if (conditions.length === 0) {
-      alert('請輸入檢索條件');
       throw new Error('請輸入檢索條件');
     }
     
@@ -876,7 +900,7 @@ class ApplicationController {
   }
 
   // ========================================
-  // 私有方法 - 工具函數
+  // 私有方法 - 工具函數（修正版）
   // ========================================
 
   _getDateFilters() {
