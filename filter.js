@@ -1,9 +1,8 @@
-// filter.js - 修正版篩選器管理模組
+// filter.js - 樹狀篩選器管理模組
 
 // ========================================
-// 篩選器管理類別
+// 樹狀篩選器管理類別
 // ========================================
-console.log('filter.js loaded');
 
 class TreeFilterManager {
   constructor() {
@@ -16,7 +15,7 @@ class TreeFilterManager {
     this._cache = new Map();
     this._maxCacheSize = 50;
     
-    // 收闔狀態管理
+    // 收闔狀態管理 - 修正版
     this._collapseState = {
       titleTree: new Map(),
       keywordTrees: new Map(),
@@ -33,6 +32,9 @@ class TreeFilterManager {
     // 事件處理器
     this._eventHandlers = new Map();
     this._eventsBound = false;
+    
+    // 彈出式視窗管理 - 改進版
+    this._modalManager = new ModalManager();
   }
 
   // 初始化
@@ -262,7 +264,6 @@ class TreeFilterManager {
 
   _createTitleTreeNode(data, level, parentMajor = null, nodeIndex = 0, majorName = '') {
     const isSelected = this._checkTitleNodeSelected(data, level, parentMajor);
-    const isSearchHighlight = this._checkTitleSearchMatch(data, level);
     const isDisabled = data.count === 0;
     const nodeId = `title-${level}-${data.name}`;
     
@@ -283,7 +284,7 @@ class TreeFilterManager {
       return '';
     }
     
-    const highlightClass = this._getHighlightClass(isSearchHighlight, isSelected, 'title');
+    const highlightClass = isSelected ? 'filter-highlight' : '';
     
     const radioBtn = `<input type="radio" name="title-${level}" class="title-radio" 
                          ${isSelected ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} 
@@ -321,7 +322,6 @@ class TreeFilterManager {
 
   _createKeywordTreeNode(data, level, majorCategory, parentKey = '', nodeIndex = 0) {
     const isSelected = this._checkKeywordNodeSelected(data, level, majorCategory, parentKey);
-    const isSearchHighlight = this._checkKeywordSearchMatch(data, level, majorCategory);
     const isDisabled = data.count === 0;
     const nodeId = `keyword-${majorCategory}-${level}-${data.name}`;
     
@@ -342,7 +342,7 @@ class TreeFilterManager {
       return '';
     }
     
-    const highlightClass = this._getHighlightClass(isSearchHighlight, isSelected, 'keyword');
+    const highlightClass = isSelected ? 'filter-highlight' : '';
     
     const toggleBtn = hasChildren ? 
       `<span class="tree-toggle" data-node-id="${nodeId}">${isCollapsed ? '+' : '−'}</span>` : 
@@ -376,6 +376,7 @@ class TreeFilterManager {
     return html;
   }
 
+  // 修正版：改進欄目樹節點生成，使其與關鍵詞、題名風格一致
   _createColumnTreeNode(data, majorName = '') {
     if (!data || data.count === 0) return '';
 
@@ -383,8 +384,7 @@ class TreeFilterManager {
     const nodeId = `column-${data.level}-${data.name}`;
     const isCollapsed = this._collapseState.columnTree.get(nodeId) || false;
     const isSelected = this._checkColumnNodeSelected(data);
-    const isSearchHighlight = this._checkColumnSearchMatch(data);
-    const highlightClass = this._getHighlightClass(isSearchHighlight, isSelected, 'column');
+    const highlightClass = isSelected ? 'filter-highlight' : '';
 
     let html = '';
 
@@ -406,15 +406,17 @@ class TreeFilterManager {
         </div>
       `;
     } else {
+      const toggleBtn = hasChildren ? 
+        `<span class="tree-toggle" data-node-id="${nodeId}">${isCollapsed ? '+' : '−'}</span>` : 
+        `<span class="tree-toggle-placeholder"></span>`;
+
       html += `
         <div class="tree-node tree-level-${data.level}" data-node-id="${nodeId}">
           <div class="tree-node-header ${highlightClass}">
             <div class="tree-node-label">
-              ${hasChildren ? 
-                `<span class="tree-toggle" data-node-id="${nodeId}">${isCollapsed ? '+' : '−'}</span>` : 
-                `<span class="tree-toggle-placeholder"></span>`
-              }
+              ${toggleBtn}
               <span class="title-text">${data.name}</span>
+              <span class="tree-node-count">${data.count}</span>
             </div>
           </div>
       `;
@@ -422,7 +424,6 @@ class TreeFilterManager {
       if (hasChildren) {
         const showAllKey = `column-${majorName || data.name}`;
         const showAll = this._expandState.columnShowAll.get(showAllKey) || false;
-        const isCategoryLevel = data.children.length > 0 && data.children[0].level === 'category';
         
         let childrenToShow = data.children;
         let showAllBtn = '';
@@ -430,9 +431,11 @@ class TreeFilterManager {
         if (data.children.length > 5) {
           childrenToShow = showAll ? data.children : data.children.slice(0, 5);
           showAllBtn = `
-            <button class="show-all-btn" data-category="${majorName || data.name}">
-              ${showAll ? `收合 (${data.children.length - 5})` : `顯示全部 (${data.children.length - 5})`}
-            </button>
+            <div class="show-all-container">
+              <button class="show-all-btn" data-category="${majorName || data.name}" data-type="column">
+                ${showAll ? `收合 (${data.children.length - 5})` : `顯示全部 (${data.children.length - 5})`}
+              </button>
+            </div>
           `;
         }
         
@@ -501,81 +504,14 @@ class TreeFilterManager {
     return categoryFilter.level === 'category' && categoryFilter.value === data.name;
   }
 
-  _checkTitleSearchMatch(data, level) {
-    if (!this._searchManager || !this._stateManager) return false;
-    
-    const searchData = this._stateManager.get('currentSearchData');
-    if (!searchData || !searchData.query) return false;
-    
-    // 檢查是否為題名欄位的檢索
-    const isTargetField = this._isTargetSearchField(searchData, 'title');
-    if (!isTargetField) return false;
-    
-    return this._searchManager.containsSearchTerms(data.name, searchData, searchData.mode || 'general');
-  }
-
-  _checkKeywordSearchMatch(data, level, majorCategory) {
-    if (!this._searchManager || !this._stateManager) return false;
-    
-    const searchData = this._stateManager.get('currentSearchData');
-    if (!searchData || !searchData.query) return false;
-    
-    // 檢查是否為關鍵詞欄位的檢索
-    const isTargetField = this._isTargetSearchField(searchData, 'keyword');
-    if (!isTargetField) return false;
-    
-    // 檢查名稱和大分類
-    return this._searchManager.containsSearchTerms(data.name, searchData, searchData.mode || 'general') ||
-           this._searchManager.containsSearchTerms(majorCategory, searchData, searchData.mode || 'general');
-  }
-
-  _checkColumnSearchMatch(data) {
-    if (!this._searchManager || !this._stateManager) return false;
-    
-    const searchData = this._stateManager.get('currentSearchData');
-    if (!searchData || !searchData.query) return false;
-    
-    // 檢查是否為欄目欄位的檢索
-    const isTargetField = this._isTargetSearchField(searchData, 'category');
-    if (!isTargetField) return false;
-    
-    return this._searchManager.containsSearchTerms(data.name, searchData, searchData.mode || 'general');
-  }
-
-  _isTargetSearchField(searchData, targetField) {
-    if (!searchData) return false;
-    
-    // 智能檢索不針對特定欄位
-    if (searchData.mode === 'smart') return false;
-    
-    // 一般檢索
-    if (searchData.mode === 'general') {
-      return searchData.fieldType === targetField || searchData.fieldType === 'all';
-    }
-    
-    // 進階檢索
-    if (searchData.mode === 'advanced' && searchData.conditions) {
-      return searchData.conditions.some(condition => 
-        condition.field === targetField || condition.field === 'all'
-      );
-    }
-    
-    return false;
-  }
-
-  _getHighlightClass(isSearchHighlight, isFilterHighlight, fieldType) {
-    if (isSearchHighlight) return 'search-highlight';
-    if (isFilterHighlight) return 'filter-highlight';
-    return '';
-  }
-
   // ========================================
-  // 私有方法 - 事件處理
+  // 私有方法 - 事件處理（修正版）
   // ========================================
 
   _bindGlobalEvents() {
     if (this._eventsBound) return;
     this._eventsBound = true;
+    
     // 收合切換事件
     this._eventHandlers.set('toggle', (event) => {
       const toggleBtn = event.target.closest('.tree-toggle');
@@ -587,14 +523,15 @@ class TreeFilterManager {
       }
     });
 
-    // 顯示全部切換事件
+    // 顯示全部切換事件 - 修正為彈出式視窗
     this._eventHandlers.set('showAll', (event) => {
       const showAllBtn = event.target.closest('.show-all-btn');
       if (!showAllBtn) return;
       
       const categoryName = showAllBtn.dataset.category;
+      const type = showAllBtn.dataset.type;
       if (categoryName) {
-        this._toggleShowAll(categoryName);
+        this._showModalForCategory(type, categoryName);
       }
     });
 
@@ -605,104 +542,111 @@ class TreeFilterManager {
     });
   }
 
+  // 修正版：樹節點收展切換
   _toggleTreeNode(nodeId) {
     console.log('[TreeFilterManager] 切換節點收闔狀態:', nodeId);
     
     let targetMap;
-    let rerenderFn;
+    
+    // 修正收展功能的判斷邏輯
     if (nodeId.startsWith('keyword-')) {
       targetMap = this._collapseState.keywordTrees;
-      rerenderFn = this.updateKeywordTrees;
-      // 如果是大分類，收合時一併收合所有中分類
-      if (nodeId.startsWith('major-')) {
-        const isCollapsed = targetMap.get(nodeId) || false;
-        targetMap.set(nodeId, !isCollapsed);
-        if (isCollapsed === false) { // 要收合
-          // 收合所有該大分類下的中分類
-          for (const key of targetMap.keys()) {
-            if (key.startsWith('keyword-') && key.includes(nodeId.replace('major-', ''))) {
-              targetMap.set(key, true);
-            }
-          }
-        }
-        rerenderFn && rerenderFn.call(this);
-        return;
-      }
     } else if (nodeId.startsWith('column-')) {
       targetMap = this._collapseState.columnTree;
-      rerenderFn = this.updateColumnTree;
-    } else {
+    } else if (nodeId.startsWith('title-')) {
       targetMap = this._collapseState.titleTree;
-      rerenderFn = this.updateTitleTree;
+    } else if (nodeId.startsWith('major-')) {
+      // 處理主要分類的切換
+      if (nodeId.includes('keyword') || document.querySelector(`[data-node-id="${nodeId}"]`)?.closest('.keyword-major-block')) {
+        targetMap = this._collapseState.keywordTrees;
+      } else if (nodeId.includes('column') || document.querySelector(`[data-node-id="${nodeId}"]`)?.closest('.column-major-block')) {
+        targetMap = this._collapseState.columnTree;
+      } else {
+        targetMap = this._collapseState.titleTree;
+      }
     }
+    
+    if (!targetMap) return;
     
     const isCollapsed = targetMap.get(nodeId) || false;
-    targetMap.set(nodeId, !isCollapsed);
-    rerenderFn && rerenderFn.call(this);
+    const newState = !isCollapsed;
+    targetMap.set(nodeId, newState);
+    
+    // 立即更新UI - 修正版
+    this._updateNodeUI(nodeId, newState);
   }
 
-  _toggleShowAll(categoryName) {
-    console.log('[TreeFilterManager] 切換顯示全部狀態:', categoryName);
-    
-    // 判斷是哪種類型的展開
-    let showAllKey;
-    let targetMap;
-    
-    if (categoryName.includes('title-')) {
-      showAllKey = categoryName;
-      targetMap = this._expandState.titleShowAll;
-    } else if (categoryName.includes('keyword-')) {
-      showAllKey = categoryName;
-      targetMap = this._expandState.keywordShowAll;
-    } else {
-      showAllKey = `column-${categoryName}`;
-      targetMap = this._expandState.columnShowAll;
-    }
-    
-    const currentState = targetMap.get(showAllKey) || false;
-    targetMap.set(showAllKey, !currentState);
-    
-    // 重新渲染對應的樹
-    this._reRenderTree(categoryName);
-  }
-
+  // 修正版：節點UI更新
   _updateNodeUI(nodeId, isCollapsed) {
     const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`);
     if (!nodeElement) return;
     
-    const contentElement = nodeElement.querySelector('.tree-node-content');
+    const contentElement = nodeElement.querySelector('.tree-node-content, .title-major-content, .keyword-major-content, .column-major-content');
     const toggleElement = nodeElement.querySelector('.tree-toggle');
     
     if (contentElement && toggleElement) {
-      contentElement.style.display = isCollapsed ? 'none' : 'block';
+      // 修正：確保內容完全隱藏或顯示
+      if (isCollapsed) {
+        contentElement.style.display = 'none';
+        contentElement.style.height = '0';
+        contentElement.style.overflow = 'hidden';
+      } else {
+        contentElement.style.display = 'block';
+        contentElement.style.height = 'auto';
+        contentElement.style.overflow = 'visible';
+      }
+      
       toggleElement.textContent = isCollapsed ? '+' : '−';
     }
-  }
-
-  _reRenderTree(categoryName) {
-    if (categoryName.includes('title-')) {
-      this.updateTitleTree();
-    } else if (categoryName.includes('keyword-')) {
-      this.updateKeywordTrees();
-    } else {
-      this.updateColumnTree();
+    
+    // 為主要分類添加收合樣式
+    if (nodeId.startsWith('major-')) {
+      const blockElement = nodeElement.closest('.title-major-block, .keyword-major-block, .column-major-block');
+      if (blockElement) {
+        if (isCollapsed) {
+          blockElement.classList.add('collapsed');
+        } else {
+          blockElement.classList.remove('collapsed');
+        }
+      }
     }
   }
 
   // ========================================
-  // 私有方法 - 快取管理
+  // 彈出式視窗功能（改進版）
   // ========================================
 
-  _generateDataHash(data) {
-    return JSON.stringify(data.slice(0, 3).map(i => i.資料編號)).substring(0, 20);
-  }
-
-  _setCache(key, value) {
-    if (this._cache.size >= this._maxCacheSize) {
-      const firstKey = this._cache.keys().next().value;
-      this._cache.delete(firstKey);
+  _showModalForCategory(type, categoryName) {
+    let data = [];
+    let title = '';
+    
+    switch (type) {
+      case 'title':
+        const availableData = this._stateManager.getAvailableData('title');
+        const treeData = this._buildTitleTreeData(availableData);
+        data = treeData.find(item => item.name === categoryName);
+        title = `題名分類：${categoryName}`;
+        break;
+      case 'keyword':
+        const kwData = this._stateManager.getAvailableData('keyword');
+        const availableMajors = [...new Set(kwData.flatMap(item => 
+          item.關鍵詞列表?.map(kw => kw.大分類).filter(Boolean) || []
+        ))];
+        const kwTreeData = this._buildKeywordTreesByMajor(kwData, availableMajors);
+        data = kwTreeData.find(item => item.majorCategory === categoryName);
+        title = `關鍵詞分類：${categoryName}`;
+        break;
+      case 'column':
+        const colData = this._stateManager.getAvailableData('category');
+        const colTreeData = this._buildColumnTreeData(colData);
+        data = colTreeData.find(item => item.name === categoryName);
+        title = `欄目分類：${categoryName}`;
+        break;
     }
-    this._cache.set(key, value);
+    
+    if (data) {
+      this._modalManager.showModal(title, data, type, categoryName, this);
+    }
   }
 
   // ========================================
@@ -785,6 +729,7 @@ class TreeFilterManager {
     }
   }
 
+  // 修正版：更新欄目樹，改進樣式
   updateColumnTree() {
     if (!this._stateManager || !this._utils) return;
     
@@ -814,19 +759,18 @@ class TreeFilterManager {
     const isCollapsed = this._collapseState.titleTree.get(`major-${data.name}`) || false;
     const isSelected = this._stateManager.get('filters.title.type') === 'major' && 
                       this._stateManager.get('filters.title.value') === data.name;
-    const isSearchHighlight = this._checkTitleSearchMatch(data, 1);
-    const highlightClass = this._getHighlightClass(isSearchHighlight, isSelected, 'title');
+    const highlightClass = isSelected ? 'filter-highlight' : '';
     
     const radioBtn = `<input type="radio" name="title-1" class="title-radio" 
                             value="${data.name}" data-level="1" data-parent="" ${isSelected ? 'checked' : ''}>`;
 
-    const showAllKey = `title-${data.name}`;
-    const showAll = this._expandState.titleShowAll.get(showAllKey) || false;
     const totalCount = data.children.length;
     const showAllBtn = totalCount > 5 ? `
-      <button class="show-all-btn" data-category="${showAllKey}">
-        ${showAll ? `收合 (只顯示 5 個)` : `顯示全部 (共 ${totalCount} 個)`}
-      </button>
+      <div class="show-all-container">
+        <button class="show-all-btn" data-category="${data.name}" data-type="title">
+          顯示全部 (共 ${totalCount} 個)
+        </button>
+      </div>
     ` : '';
 
     return `
@@ -836,8 +780,8 @@ class TreeFilterManager {
           <label class="title-label-container">${radioBtn}<span class="title-major-title">${data.name}</span></label>
           <span class="title-major-count">(${data.count})</span>
         </div>
-        <div class="title-major-content">
-          ${data.children.map((child, index) => this._createTitleTreeNode(child, 2, data.name, index, data.name)).join('')}
+        <div class="title-major-content" style="display: ${isCollapsed ? 'none' : 'block'};">
+          ${data.children.slice(0, 5).map((child, index) => this._createTitleTreeNode(child, 2, data.name, index, data.name)).join('')}
           ${showAllBtn}
         </div>
       </div>
@@ -846,58 +790,53 @@ class TreeFilterManager {
 
   _createKeywordTreeBlock(tree) {
     const isCollapsed = this._collapseState.keywordTrees.get(`major-${tree.majorCategory}`) || false;
-    const isSearchHighlight = this._checkKeywordSearchMatch({ name: tree.majorCategory }, 0, tree.majorCategory);
-    const highlightClass = this._getHighlightClass(isSearchHighlight, false, 'keyword');
 
-    const showAllKey = `keyword-${tree.majorCategory}`;
-    const showAll = this._expandState.keywordShowAll.get(showAllKey) || false;
-    const visibleCount = Math.min(5, tree.midCategories.length);
-    const hiddenCount = Math.max(0, tree.midCategories.length - 5);
     const totalCount = tree.midCategories.length;
     const showAllBtn = totalCount > 5 ? `
-      <button class="show-all-btn" data-category="${showAllKey}">
-        ${showAll ? `收合 (只顯示 5 個)` : `顯示全部 (共 ${totalCount} 個)`}
-      </button>
+      <div class="show-all-container">
+        <button class="show-all-btn" data-category="${tree.majorCategory}" data-type="keyword">
+          顯示全部 (共 ${totalCount} 個)
+        </button>
+      </div>
     ` : '';
 
     return `
       <div class="keyword-major-block ${isCollapsed ? 'collapsed' : ''}">
-        <div class="keyword-major-header ${highlightClass}">
+        <div class="keyword-major-header">
           <span class="tree-toggle" data-node-id="major-${tree.majorCategory}">${isCollapsed ? '+' : '−'}</span>
           <span class="keyword-major-title">${tree.majorCategory}</span>
           <span class="keyword-major-count">(${tree.totalCount})</span>
         </div>
-        <div class="keyword-major-content">
-          ${tree.midCategories.map((mid, index) => this._createKeywordTreeNode(mid, 1, tree.majorCategory, '', index)).join('')}
+        <div class="keyword-major-content" style="display: ${isCollapsed ? 'none' : 'block'};">
+          ${tree.midCategories.slice(0, 5).map((mid, index) => this._createKeywordTreeNode(mid, 1, tree.majorCategory, '', index)).join('')}
           ${showAllBtn}
         </div>
       </div>
     `;
   }
 
+  // 修正版：創建欄目樹區塊，與關鍵詞、題名風格一致
   _createColumnTreeBlock(data) {
     const isCollapsed = this._collapseState.columnTree.get(`major-${data.name}`) || false;
-    const isSearchHighlight = this._checkColumnSearchMatch(data);
-    const highlightClass = this._getHighlightClass(isSearchHighlight, false, 'column');
 
-    const showAllKey = `column-${data.name}`;
-    const showAll = this._expandState.columnShowAll.get(showAllKey) || false;
     const totalCount = data.children.length;
     const showAllBtn = totalCount > 5 ? `
-      <button class="show-all-btn" data-category="${showAllKey}">
-        ${showAll ? `收合 (只顯示 5 個)` : `顯示全部 (共 ${totalCount} 個)`}
-      </button>
+      <div class="show-all-container">
+        <button class="show-all-btn" data-category="${data.name}" data-type="column">
+          顯示全部 (共 ${totalCount} 個)
+        </button>
+      </div>
     ` : '';
 
     return `
       <div class="column-major-block ${isCollapsed ? 'collapsed' : ''}">
-        <div class="column-major-header ${highlightClass}">
+        <div class="column-major-header">
           <span class="tree-toggle" data-node-id="major-${data.name}">${isCollapsed ? '+' : '−'}</span>
           <span class="column-major-title">${data.name}</span>
           <span class="column-major-count">(${data.count})</span>
         </div>
-        <div class="column-major-content">
-          ${data.children.slice(0, showAll ? data.children.length : 5).map(child => this._createColumnTreeNode(child, data.name)).join('')}
+        <div class="column-major-content" style="display: ${isCollapsed ? 'none' : 'block'};">
+          ${data.children.slice(0, 5).map(child => this._createColumnTreeNode(child, data.name)).join('')}
           ${showAllBtn}
         </div>
       </div>
@@ -1014,6 +953,260 @@ class TreeFilterManager {
       size: this._cache.size,
       maxSize: this._maxCacheSize
     };
+  }
+
+  // ========================================
+  // 私有方法 - 工具函數
+  // ========================================
+
+  _generateDataHash(data) {
+    return JSON.stringify(data.slice(0, 3).map(i => i.資料編號)).substring(0, 20);
+  }
+
+  _setCache(key, value) {
+    if (this._cache.size >= this._maxCacheSize) {
+      const firstKey = this._cache.keys().next().value;
+      this._cache.delete(firstKey);
+    }
+    this._cache.set(key, value);
+  }
+}
+
+// ========================================
+// 彈出式視窗管理器（改進版）
+// ========================================
+
+class ModalManager {
+  constructor() {
+    this.currentModal = null;
+  }
+
+  showModal(title, data, type, categoryName, treeManager) {
+    this.closeModal(); // 關閉現有的視窗
+    
+    const modalHtml = this._createModalHtml(title, data, type, categoryName, treeManager);
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    this.currentModal = document.getElementById('category-modal');
+    this._bindModalEvents(treeManager);
+    
+    // 顯示動畫
+    setTimeout(() => {
+      if (this.currentModal) {
+        this.currentModal.classList.add('show');
+      }
+    }, 10);
+  }
+
+  _createModalHtml(title, data, type, categoryName, treeManager) {
+    let contentHtml = '';
+    
+    switch (type) {
+      case 'title':
+        contentHtml = this._createTitleModalContent(data, treeManager);
+        break;
+      case 'keyword':
+        contentHtml = this._createKeywordModalContent(data, treeManager);
+        break;
+      case 'column':
+        contentHtml = this._createColumnModalContent(data, treeManager);
+        break;
+    }
+
+    return `
+      <div id="category-modal" class="modal-overlay">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 class="modal-title">${title}</h3>
+            <button class="modal-close" aria-label="關閉">×</button>
+          </div>
+          <div class="modal-body">
+            ${contentHtml}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _createTitleModalContent(data, treeManager) {
+    if (!data || !data.children) return '<p>無可用分類</p>';
+    
+    return `
+      <div class="modal-tree-grid">
+        ${data.children.map(child => `
+          <div class="modal-tree-item">
+            <label class="modal-tree-label">
+              <input type="radio" name="modal-title" class="modal-radio" 
+                     value="${child.name}" data-level="2" data-parent="${data.name}">
+              <span class="modal-tree-text">${child.name}</span>
+              <span class="modal-tree-count">(${child.count})</span>
+            </label>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  _createKeywordModalContent(data, treeManager) {
+    if (!data || !data.midCategories) return '<p>無可用關鍵詞</p>';
+    
+    return `
+      <div class="modal-tree-grid">
+        ${data.midCategories.map(mid => `
+          <div class="modal-tree-group">
+            <div class="modal-tree-item">
+              <label class="modal-tree-label">
+                <input type="checkbox" class="modal-checkbox" 
+                       data-major="${data.majorCategory}" data-mid="" data-minor="${mid.name}">
+                <span class="modal-tree-text modal-tree-mid">${mid.name}</span>
+                <span class="modal-tree-count">(${mid.count})</span>
+              </label>
+            </div>
+            ${mid.children ? `
+              <div class="modal-tree-children">
+                ${mid.children.map(minor => `
+                  <div class="modal-tree-item modal-tree-minor">
+                    <label class="modal-tree-label">
+                      <input type="checkbox" class="modal-checkbox" 
+                             data-major="${data.majorCategory}" data-mid="${mid.name}" data-minor="${minor.name}">
+                      <span class="modal-tree-text">${minor.name}</span>
+                      <span class="modal-tree-count">(${minor.count})</span>
+                    </label>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  _createColumnModalContent(data, treeManager) {
+    if (!data || !data.children) return '<p>無可用欄目</p>';
+    
+    const createColumnNode = (node, level = 0) => {
+      const hasChildren = node.children && node.children.length > 0;
+      const isSelectable = node.level === 'category';
+      const indent = level * 20;
+      
+      let html = `
+        <div class="modal-tree-item" style="margin-left: ${indent}px">
+          <label class="modal-tree-label ${isSelectable ? 'selectable' : ''}">
+            ${isSelectable ? `
+              <input type="radio" name="modal-column" class="modal-radio" 
+                     value="${node.name}" data-level="category">
+            ` : ''}
+            <span class="modal-tree-text">${node.name}</span>
+            <span class="modal-tree-count">(${node.count})</span>
+          </label>
+        </div>
+      `;
+      
+      if (hasChildren) {
+        html += node.children.map(child => createColumnNode(child, level + 1)).join('');
+      }
+      
+      return html;
+    };
+    
+    return `
+      <div class="modal-tree-list">
+        ${data.children.map(child => createColumnNode(child)).join('')}
+      </div>
+    `;
+  }
+
+  _bindModalEvents(treeManager) {
+    if (!this.currentModal) return;
+    
+    // 關閉按鈕
+    this.currentModal.querySelector('.modal-close')?.addEventListener('click', () => {
+      this.closeModal();
+    });
+    
+    // 點擊遮罩關閉
+    this.currentModal.addEventListener('click', (e) => {
+      if (e.target === this.currentModal) {
+        this.closeModal();
+      }
+    });
+    
+    // ESC 鍵關閉
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        this.closeModal();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+    
+    // 綁定選擇事件
+    this.currentModal.querySelectorAll('.modal-radio').forEach(radio => {
+      radio.addEventListener('change', () => {
+        if (radio.checked && treeManager._stateManager) {
+          const level = parseInt(radio.dataset.level) || 1;
+          const value = radio.value;
+          const parent = radio.dataset.parent;
+          
+          if (radio.name === 'modal-title') {
+            treeManager._stateManager.setTitleFilter(level, value, parent || null);
+          } else if (radio.name === 'modal-column') {
+            treeManager._stateManager.setCategoryFilter('category', value, parent);
+          }
+          
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('stateChange'));
+          }, 0);
+          
+          this.closeModal();
+        }
+      });
+    });
+    
+    this.currentModal.querySelectorAll('.modal-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', () => {
+        if (treeManager._stateManager && treeManager._stateManager.toggleKeywordSelection) {
+          const major = checkbox.dataset.major;
+          const mid = checkbox.dataset.mid;
+          const minor = checkbox.dataset.minor;
+          
+          let selection;
+          if (mid && minor) {
+            selection = {
+              major: major,
+              type: 'minor',
+              mid: mid,
+              value: minor
+            };
+          } else {
+            selection = {
+              major: major,
+              type: 'mid',
+              value: minor
+            };
+          }
+          
+          treeManager._stateManager.toggleKeywordSelection(selection);
+          
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('stateChange'));
+          }, 0);
+        }
+      });
+    });
+  }
+
+  closeModal() {
+    if (this.currentModal) {
+      this.currentModal.classList.add('hiding');
+      setTimeout(() => {
+        if (this.currentModal) {
+          this.currentModal.remove();
+          this.currentModal = null;
+        }
+      }, 300);
+    }
   }
 }
 
