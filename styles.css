@@ -2382,3 +2382,369 @@ button:focus, input:focus, select:focus {
     border: 2px solid #000;
   }
 }
+
+/* ===== 欄目層級縮排樣式（新增） ===== */
+.column-depth-0 {
+  padding-left: 0;
+}
+
+.column-depth-1 {
+  padding-left: 20px; /* 增大縮排 */
+  border-left: 2px solid #e5e7eb;
+  margin-left: 8px; /* 增大間距 */
+}
+
+.column-depth-2 {
+  padding-left: 40px; /* 增大縮排 */
+  border-left: 2px solid #cbd5e1;
+  margin-left: 16px; /* 增大間距 */
+  position: relative;
+}
+
+.column-depth-2::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, #a855f7 0%, #8b5cf6 100%);
+}
+
+.column-depth-3 {
+  padding-left: 60px; /* 增大縮排 */
+  border-left: 2px solid #a855f7;
+  margin-left: 24px; /* 增大間距 */
+  position: relative;
+  background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+  border-radius: 4px;
+}
+
+.column-depth-3::before {
+  content: '└';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #a855f7;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.column-depth-3 .tree-node-header {
+  background: rgba(168, 85, 247, 0.05);
+  border-radius: 4px;
+}
+
+.column-depth-3 .title-text {
+  color: #7c3aed !important;
+  font-weight: 600;
+}
+
+/* ===== 高度相關詞樣式（新增） ===== */
+.related-keywords-section {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 1px solid #0ea5e9;
+  border-radius: 12px;
+  padding: 20px 24px; /* 增大padding */
+  margin-top: 20px; /* 增大間距 */
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.1);
+  transition: all 0.3s ease;
+}
+
+.related-keywords-section:hover {
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.15);
+  transform: translateY(-1px);
+}
+
+.related-keywords-section.hidden {
+  display: none;
+}
+
+.related-keywords-title {
+  font-size: 1.1rem; /* 增大字體 */
+  font-weight: 700;
+  color: #0369a1;
+  margin-bottom: 14px; /* 增大間距 */
+  display: flex;
+  align-items: center;
+  gap: 8px; /* 增大間距 */
+}
+
+.related-keywords-title::before {
+  content: '🔍';
+  font-size: 1.2rem; /* 增大字體 */
+}
+
+.related-keywords-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px; /* 增大間距 */
+  align-items: center;
+}
+
+.related-keyword-tag {
+  display: inline-flex;
+  align-items: center;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  color: #1e40af;
+  border: 1.5px solid #3b82f6;
+  border-radius: 20px;
+  padding: 8px 16px; /* 增大padding */
+  font-size: 0.95rem; /* 增大字體 */
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+  user-select: none;
+  gap: 6px; /* 增大間距 */
+}
+
+.related-keyword-tag:hover {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.25);
+}
+
+.related-keyword-count {
+  background: rgba(59, 130, 246, 0.15);
+  color: #1e40af;
+  border-radius: 12px;
+  padding: 2px 8px; /* 增大padding */
+  font-size: 0.8rem; /* 增大字體 */
+  font-weight: 700;
+  margin-left: 6px; /* 增大間距 */
+  transition: all 0.3s ease;
+}
+
+.related-keyword-tag:hover .related-keyword-count {
+  background: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
+/* ===== 欄目容器動態高度調整（新增） ===== */
+.column-major-block.small-content {
+  min-height: 120px !important;
+  max-height: 300px !important;
+}
+
+.column-major-block.medium-content {
+  min-height: 200px !important;
+  max-height: 400px !important;
+}
+
+.column-major-block.large-content {
+  min-height: 280px !important;
+  max-height: 500px !important;
+}
+
+/* ===== 數量為0時的禁用樣式（增強） ===== */
+.tree-node-header.disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  background-color: #f9fafb !important;
+  pointer-events: none;
+}
+
+.tree-node-header.disabled .title-text,
+.tree-node-header.disabled .keyword-text {
+  color: #9ca3af !important;
+}
+
+.tree-node-header.disabled .tree-node-count {
+  background-color: #f3f4f6 !important;
+  color: #9ca3af !important;
+}
+
+.tree-radio:disabled,
+.title-radio:disabled,
+.keyword-checkbox:disabled {
+  opacity: 0.3 !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+/* ===== 欄目層級縮排樣式（新增） ===== */
+.column-depth-0 {
+  padding-left: 0;
+}
+
+.column-depth-1 {
+  padding-left: 20px; /* 增大縮排 */
+  border-left: 2px solid #e5e7eb;
+  margin-left: 8px; /* 增大間距 */
+}
+
+.column-depth-2 {
+  padding-left: 40px; /* 增大縮排 */
+  border-left: 2px solid #cbd5e1;
+  margin-left: 16px; /* 增大間距 */
+  position: relative;
+}
+
+.column-depth-2::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, #a855f7 0%, #8b5cf6 100%);
+}
+
+.column-depth-3 {
+  padding-left: 60px; /* 增大縮排 */
+  border-left: 2px solid #a855f7;
+  margin-left: 24px; /* 增大間距 */
+  position: relative;
+  background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+  border-radius: 4px;
+}
+
+.column-depth-3::before {
+  content: '└';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #a855f7;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.column-depth-3 .tree-node-header {
+  background: rgba(168, 85, 247, 0.05);
+  border-radius: 4px;
+}
+
+.column-depth-3 .title-text {
+  color: #7c3aed !important;
+  font-weight: 600;
+}
+
+/* ===== 高度相關詞樣式 ===== */
+.related-keywords-section {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 1px solid #0ea5e9;
+  border-radius: 12px;
+  padding: 20px 24px; /* 增大padding */
+  margin-top: 20px; /* 增大間距 */
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.1);
+  transition: all 0.3s ease;
+}
+
+.related-keywords-section:hover {
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.15);
+  transform: translateY(-1px);
+}
+
+.related-keywords-section.hidden {
+  display: none;
+}
+
+.related-keywords-title {
+  font-size: 1.1rem; /* 增大字體 */
+  font-weight: 700;
+  color: #0369a1;
+  margin-bottom: 14px; /* 增大間距 */
+  display: flex;
+  align-items: center;
+  gap: 8px; /* 增大間距 */
+}
+
+.related-keywords-title::before {
+  content: '🔍';
+  font-size: 1.2rem; /* 增大字體 */
+}
+
+.related-keywords-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px; /* 增大間距 */
+  align-items: center;
+}
+
+.related-keyword-tag {
+  display: inline-flex;
+  align-items: center;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  color: #1e40af;
+  border: 1.5px solid #3b82f6;
+  border-radius: 20px;
+  padding: 8px 16px; /* 增大padding */
+  font-size: 0.95rem; /* 增大字體 */
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+  user-select: none;
+  gap: 6px; /* 增大間距 */
+}
+
+.related-keyword-tag:hover {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.25);
+}
+
+.related-keyword-count {
+  background: rgba(59, 130, 246, 0.15);
+  color: #1e40af;
+  border-radius: 12px;
+  padding: 2px 8px; /* 增大padding */
+  font-size: 0.8rem; /* 增大字體 */
+  font-weight: 700;
+  margin-left: 6px; /* 增大間距 */
+  transition: all 0.3s ease;
+}
+
+.related-keyword-tag:hover .related-keyword-count {
+  background: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
+/* ===== 欄目容器動態高度調整 ===== */
+.column-major-block.small-content {
+  min-height: 120px !important;
+  max-height: 300px !important;
+}
+
+.column-major-block.medium-content {
+  min-height: 200px !important;
+  max-height: 400px !important;
+}
+
+.column-major-block.large-content {
+  min-height: 280px !important;
+  max-height: 500px !important;
+}
+
+/* ===== 數量為0時的禁用樣式 ===== */
+.tree-node-header.disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  background-color: #f9fafb !important;
+  pointer-events: none;
+}
+
+.tree-node-header.disabled .title-text,
+.tree-node-header.disabled .keyword-text {
+  color: #9ca3af !important;
+}
+
+.tree-node-header.disabled .tree-node-count {
+  background-color: #f3f4f6 !important;
+  color: #9ca3af !important;
+}
+
+.tree-radio:disabled,
+.title-radio:disabled,
+.keyword-checkbox:disabled {
+  opacity: 0.3 !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+/* ===== 樹狀篩選器層級視覺優化 ===== */
