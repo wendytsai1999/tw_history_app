@@ -1,4 +1,4 @@
-// state-manager.js - 修正版狀態管理模組
+// state-manager.js - 狀態管理模組
 
 // ========================================
 // 狀態管理類別
@@ -177,13 +177,13 @@ class StateManager {
     });
   }
 
-  // 新增：日期篩選邏輯
+  // 修正版：日期篩選邏輯
   applyDateFilters(data) {
     const filters = this.state.filters;
     
     return data.filter(item => {
       // 西元年日期篩選
-      if (filters.startDate || filters.endDate) {
+      if (filters.dateFilterType === 'western' && (filters.startDate || filters.endDate)) {
         if (!item._日期) return false;
         if (filters.startDate && item._日期 < filters.startDate) return false;
         if (filters.endDate && item._日期 > filters.endDate) return false;
@@ -192,16 +192,35 @@ class StateManager {
       // 日治年號篩選
       if (filters.dateFilterType === 'japanese' && filters.era) {
         if (!item._年份) return false;
-        let startYear = null;
-        let endYear = null;
-        if (filters.eraStartYear && this.utils) {
-          startYear = this.utils.convertEraToWestern(filters.era, filters.eraStartYear);
+        
+        // 年號轉換邏輯
+        let eraStartYear = null;
+        let eraEndYear = null;
+        
+        if (filters.eraStartYear && this.utils && typeof this.utils.convertEraToWestern === 'function') {
+          eraStartYear = this.utils.convertEraToWestern(filters.era, filters.eraStartYear);
         }
-        if (filters.eraEndYear && this.utils) {
-          endYear = this.utils.convertEraToWestern(filters.era, filters.eraEndYear);
+        if (filters.eraEndYear && this.utils && typeof this.utils.convertEraToWestern === 'function') {
+          eraEndYear = this.utils.convertEraToWestern(filters.era, filters.eraEndYear);
         }
-        if (startYear && item._年份 < startYear) return false;
-        if (endYear && item._年份 > endYear) return false;
+        
+        // 如果沒有指定年份，使用年號的完整範圍
+        if (!eraStartYear || !eraEndYear) {
+          const eraRanges = {
+            '明治': { start: 1895, end: 1912 }, // 臺灣日治時期的明治年間
+            '大正': { start: 1912, end: 1926 },
+            '昭和': { start: 1926, end: 1945 } // 臺灣日治時期的昭和年間
+          };
+          
+          const range = eraRanges[filters.era];
+          if (range) {
+            eraStartYear = eraStartYear || range.start;
+            eraEndYear = eraEndYear || range.end;
+          }
+        }
+        
+        if (eraStartYear && item._年份 < eraStartYear) return false;
+        if (eraEndYear && item._年份 > eraEndYear) return false;
       }
       
       return true;
@@ -327,7 +346,7 @@ class StateManager {
     }
     
     // 日期篩選
-    if (filters.startDate || filters.endDate) {
+    if (filters.dateFilterType === 'western' && (filters.startDate || filters.endDate)) {
       result = result.filter(item => {
         if (!item._日期) return false;
         if (filters.startDate && item._日期 < filters.startDate) return false;
@@ -340,16 +359,34 @@ class StateManager {
     if (filters.dateFilterType === 'japanese' && filters.era) {
       result = result.filter(item => {
         if (!item._年份) return false;
-        let startYear = null;
-        let endYear = null;
-        if (filters.eraStartYear && this.utils) {
-          startYear = this.utils.convertEraToWestern(filters.era, filters.eraStartYear);
+        
+        let eraStartYear = null;
+        let eraEndYear = null;
+        
+        if (filters.eraStartYear && this.utils && typeof this.utils.convertEraToWestern === 'function') {
+          eraStartYear = this.utils.convertEraToWestern(filters.era, filters.eraStartYear);
         }
-        if (filters.eraEndYear && this.utils) {
-          endYear = this.utils.convertEraToWestern(filters.era, filters.eraEndYear);
+        if (filters.eraEndYear && this.utils && typeof this.utils.convertEraToWestern === 'function') {
+          eraEndYear = this.utils.convertEraToWestern(filters.era, filters.eraEndYear);
         }
-        if (startYear && item._年份 < startYear) return false;
-        if (endYear && item._年份 > endYear) return false;
+        
+        // 如果沒有指定年份，使用年號的完整範圍
+        if (!eraStartYear || !eraEndYear) {
+          const eraRanges = {
+            '明治': { start: 1895, end: 1912 },
+            '大正': { start: 1912, end: 1926 },
+            '昭和': { start: 1926, end: 1945 }
+          };
+          
+          const range = eraRanges[filters.era];
+          if (range) {
+            eraStartYear = eraStartYear || range.start;
+            eraEndYear = eraEndYear || range.end;
+          }
+        }
+        
+        if (eraStartYear && item._年份 < eraStartYear) return false;
+        if (eraEndYear && item._年份 > eraEndYear) return false;
         return true;
       });
     }
