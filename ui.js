@@ -571,7 +571,10 @@ class UIManager {
             <div class="simple-card-content">
               <div class="simple-title-row">
                 <div class="simple-title ${this._getHighlightClass(titleSearchMatch, titleFilterMatch)}">
-                  ${this._highlightSearchTerms(title, searchData, searchMode)}
+                  ${item.hasLink && item.linkUrl ? 
+                    `<a href="${item.linkUrl}" target="_blank">${this._highlightSearchTerms(title, searchData, searchMode)}</a>` :
+                    this._highlightSearchTerms(title, searchData, searchMode)
+                  }
                 </div>
                 <div class="simple-category-inline">
                   ${categoryText}
@@ -647,7 +650,10 @@ class UIManager {
             <div class="simple-card-content">
               <div class="simple-title-row">
                 <div class="simple-title ${this._getHighlightClass(titleSearchMatch, titleFilterMatch)}">
-                  ${this._highlightSearchTerms(title, searchData, searchMode)}
+                  ${item.hasLink && item.linkUrl ? 
+                    `<a href="${item.linkUrl}" target="_blank">${this._highlightSearchTerms(title, searchData, searchMode)}</a>` :
+                    this._highlightSearchTerms(title, searchData, searchMode)
+                  }
                 </div>
                 <div class="simple-category-inline">
                   ${categoryText}
@@ -1776,3 +1782,4 @@ class UIManager {
 // 創建並導出單例
 const uiManager = new UIManager();
 export { uiManager as UIManager };
+
